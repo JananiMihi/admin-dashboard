@@ -50,8 +50,6 @@ export default function OverviewPage() {
         const { data: users } = await supabaseAdmin
           .from('users')
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100)
         usersData = users || []
       } catch (err) {
         console.log('Users table not found')
@@ -60,10 +58,12 @@ export default function OverviewPage() {
       // Try fetching from auth.users
       let authUsers: any[] = []
       try {
-        const { data: { users } } = await supabaseAdmin.auth.admin.listUsers()
-        authUsers = users || []
+        const { data: { users }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
+        if (!authError && users) {
+          authUsers = users
+        }
       } catch (err) {
-        console.log('Cannot fetch auth users')
+        console.log('Cannot fetch auth users:', err)
       }
 
       // Fetch missions count
@@ -81,11 +81,15 @@ export default function OverviewPage() {
         const userInfo = usersData.find(u => u.id === profile.user_id) || {}
         const authUser = authUsers.find(u => u.id === profile.user_id) || {}
         
+        // Try multiple sources for name and email
+        const email = userInfo.email || authUser.email || profile.email || `User-${profile.user_id?.substring(0, 8) || 'Unknown'}`
+        const name = userInfo.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || profile.name || `User ${profile.user_id?.substring(0, 8) || 'Unknown'}`
+        
         return {
           ...profile,
-          email: userInfo.email || authUser.email || 'No email',
-          name: userInfo.name || authUser.user_metadata?.name || 'No name',
-          created_at: profile.created_at
+          email,
+          name,
+          created_at: profile.created_at || new Date().toISOString()
         }
       })
 

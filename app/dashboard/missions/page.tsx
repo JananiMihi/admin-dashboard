@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Mission } from '@/lib/supabase'
-import { Upload, Plus, Edit2, Trash2, Target, Check, Star } from 'lucide-react'
+import { Upload, Target, Check, Star, Users } from 'lucide-react'
 
 export default function MissionsPage() {
   const [missions, setMissions] = useState<Mission[]>([])
+  const [missionsWithStats, setMissionsWithStats] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showUpload, setShowUpload] = useState(false)
   const [jsonContent, setJsonContent] = useState('')
@@ -19,13 +20,47 @@ export default function MissionsPage() {
 
   const fetchMissions = async () => {
     try {
-      const { data, error } = await supabaseAdmin
+      // Fetch missions - try to order by 'order' column, fallback to created_at
+      let missionsQuery = supabaseAdmin
         .from('missions')
         .select('*')
-        .order('order', { ascending: true })
 
-      if (error) throw error
+      const { data, error } = await missionsQuery.order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching missions:', error.message)
+        throw error
+      }
+      
       setMissions(data || [])
+
+      // Fetch user data to count users who completed each mission
+      const { data: userData, error: userDataError } = await supabaseAdmin
+        .from('user_data')
+        .select('current_mission')
+
+      if (userDataError) {
+        console.error('Error fetching user data:', userDataError.message)
+      }
+
+      // Calculate how many users have completed each mission
+      // user_data.current_mission contains the ORDER NUMBER (0, 1, 2, etc.)
+      // A user has "completed" a mission if their current_mission > that mission's index
+      // (meaning they've passed that mission and moved on)
+      const missionsWithCompletion = (data || []).map((mission: any, missionIndex: number) => {
+        // Count users who have COMPLETED this mission
+        // (users with current_mission > missionIndex have passed this mission)
+        const usersCompleted = userData?.filter((user: any) => {
+          return user.current_mission > missionIndex
+        }) || []
+        
+        return {
+          ...mission,
+          completedUsers: usersCompleted.length,
+        }
+      })
+
+      setMissionsWithStats(missionsWithCompletion)
     } catch (error: any) {
       console.error('Error fetching missions:', error.message)
     } finally {
@@ -65,7 +100,6 @@ export default function MissionsPage() {
           .upsert({
             title: mission.title,
             description: mission.description,
-            order: mission.order || 0,
             xp_reward: mission.xp_reward || 0,
             difficulty: mission.difficulty || 'medium',
             estimated_time: mission.estimated_time || 0,
@@ -84,22 +118,6 @@ export default function MissionsPage() {
     }
   }
 
-  const handleDeleteMission = async (missionId: string) => {
-    if (!confirm('Are you sure you want to delete this mission?')) return
-
-    try {
-      const { error } = await supabaseAdmin
-        .from('missions')
-        .delete()
-        .eq('id', missionId)
-
-      if (error) throw error
-      fetchMissions()
-    } catch (error: any) {
-      console.error('Error deleting mission:', error.message)
-      alert('Failed to delete mission: ' + error.message)
-    }
-  }
 
   if (loading) {
     return (
@@ -253,32 +271,37 @@ export default function MissionsPage() {
                     Order
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Title
+                    Mission Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Active Users
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Difficulty
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    XP Reward
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
+                    Total XP
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {missions.map((mission) => (
-                  <tr key={mission.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {mission.order}
+                {missionsWithStats.map((mission, index) => (
+                  <tr key={`mission-${index}-${mission.id || mission.title || index}`} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{index + 1}</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{mission.title}</div>
+                      <div className="text-sm font-medium text-gray-900">{mission.title || 'No title'}</div>
                       <div className="text-sm text-gray-500 truncate max-w-md">
-                        {mission.description}
+                        {mission.description || 'No description'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <Users className="h-4 w-4 text-green-600 mr-2" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {mission.completedUsers || 0} users
+                        </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -287,26 +310,16 @@ export default function MissionsPage() {
                         mission.difficulty === 'hard' ? 'bg-red-100 text-red-800' :
                         'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {mission.difficulty}
+                        {mission.difficulty || 'medium'}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {mission.xp_reward} XP
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        mission.unlocked ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {mission.unlocked ? 'Unlocked' : 'Locked'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleDeleteMission(mission.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
+                      <div className="flex items-center">
+                        <Star className="h-4 w-4 text-yellow-500 mr-2" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {mission.xp_reward || 0} XP
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -315,7 +328,7 @@ export default function MissionsPage() {
           </div>
         </div>
 
-        {missions.length === 0 && (
+        {missionsWithStats.length === 0 && (
           <div className="text-center py-12">
             <Target className="mx-auto h-12 w-12 text-gray-400" />
             <p className="mt-4 text-gray-500">No missions available. Upload your first mission!</p>
