@@ -71,10 +71,18 @@ export default function OverviewPage() {
         .from('missions')
         .select('*', { count: 'exact', head: true })
 
-      // Fetch progress count
-      const { count: totalProgress } = await supabaseAdmin
-        .from('user_progress')
-        .select('*', { count: 'exact', head: true })
+      // Fetch total progress from user_data table
+      // Total progress is the number of users who have completed at least 1 mission
+      // (current_mission > 0 means they've moved past the first mission)
+      const { data: userData, error: userDataError } = await supabaseAdmin
+        .from('user_data')
+        .select('current_mission')
+      
+      let totalProgress = 0
+      if (!userDataError && userData) {
+        // Count users who have completed at least mission 0 (current_mission > 0)
+        totalProgress = userData.filter((user: any) => user.current_mission > 0).length
+      }
 
       // Combine profiles with user data
       const enrichedProfiles = (profilesData || []).map((profile: any) => {
@@ -168,9 +176,9 @@ export default function OverviewPage() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Total Progress</p>
+                  <p className="text-sm text-gray-500">Active Users</p>
                   <p className="text-2xl font-bold text-gray-900">{stats.totalProgress}</p>
-                  <p className="text-xs text-purple-600 mt-1">Click to view →</p>
+                  <p className="text-xs text-purple-600 mt-1">Have started missions →</p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-purple-600" />
               </div>
