@@ -1,0 +1,47 @@
+[
+  {
+    "title": "Introduction to Variables",
+    "description": "Learn the basics of variables and how to declare them in code",
+    "order": 1,
+    "xp_reward": 50,
+    "difficulty": "easy",
+    "estimated_time": 15,
+    "unlocked": true
+  },
+  {
+    "title": "Working with Functions",
+    "description": "Understand how to create and use functions in your code",
+    "order": 2,
+    "xp_reward": 75,
+    "difficulty": "medium",
+    "estimated_time": 25,
+    "unlocked": true
+  },
+  {
+    "title": "Control Flow and Conditionals",
+    "description": "Master if/else statements and switch cases",
+    "order": 3,
+    "xp_reward": 100,
+    "difficulty": "medium",
+    "estimated_time": 30,
+    "unlocked": true
+  },
+  {
+    "title": "Arrays and Lists",
+    "description": "Learn to work with arrays and manipulate list data",
+    "order": 4,
+    "xp_reward": 100,
+    "difficulty": "medium",
+    "estimated_time": 35,
+    "unlocked": true
+  },
+  {
+    "title": "Advanced Algorithms",
+    "description": "Implement sorting and searching algorithms",
+    "order": 5,
+    "xp_reward": 150,
+    "difficulty": "hard",
+    "estimated_time": 45,
+    "unlocked": true
+  }
+]
