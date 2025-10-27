@@ -210,8 +210,14 @@ export default function OverviewPage() {
 
         {/* User Profiles Table */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-900">Recent User Profiles</h2>
+            <button
+              onClick={() => router.push('/dashboard/users')}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              View All Users →
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
