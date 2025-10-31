@@ -31,6 +31,7 @@ export default function MissionGeneratorPage() {
       tryThis: '',
       whyItWorks: '',
       mcq: {
+        compalsary:'',
         question: '',
         options: ['', '', '', ''],
         correctAnswer: 0,
