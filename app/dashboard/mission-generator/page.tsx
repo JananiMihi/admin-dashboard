@@ -506,6 +506,17 @@ export default function MissionGeneratorPage() {
                           <h4 className="font-medium mb-2">MCQ</h4>
                           <input
                             type="text"
+                            value={step.mcq?.compalsary || ''}
+                            onChange={(e) => {
+                              const newData = JSON.parse(JSON.stringify(formData))
+                              newData.steps[idx].mcq.compalsary = e.target.value
+                              setFormData(newData)
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
+                            placeholder="Compalsary"
+                          />
+                          <input
+                            type="text"
                             value={step.mcq?.question || ''}
                             onChange={(e) => {
                               const newData = JSON.parse(JSON.stringify(formData))
@@ -587,6 +598,7 @@ export default function MissionGeneratorPage() {
                     tryThis: '',
                     whyItWorks: '',
                     mcq: {
+                      compalsary: '',
                       question: '',
                       options: ['', '', '', ''],
                       correctAnswer: 0,

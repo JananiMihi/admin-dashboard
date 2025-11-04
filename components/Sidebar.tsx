@@ -16,7 +16,9 @@ import {
   Activity,
   Flag,
   FileCheck,
-  Home
+  Home,
+  Database,
+  Building2
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -30,6 +32,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
   const menuItems = [
     { icon: Home, label: 'Overview', href: '/dashboard/overview' },
     { icon: Users, label: 'Users', href: '/dashboard/users' },
+    { icon: Building2, label: 'Organizations', href: '/dashboard/organizations' },
     { icon: Target, label: 'Missions', href: '/dashboard/missions' },
     { icon: Wand2, label: 'Mission Generator', href: '/dashboard/mission-generator' },
     { icon: FolderOpen, label: 'Projects', href: '/dashboard/projects' },
@@ -40,6 +43,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }: SidebarProps) {
     { icon: Activity, label: 'Diagnostics', href: '/dashboard/diagnostics' },
     { icon: Flag, label: 'Experiments', href: '/dashboard/experiments' },
     { icon: FileCheck, label: 'Compliance', href: '/dashboard/compliance' },
+    { icon: Database, label: 'Database Test', href: '/dashboard/database-test' },
     { icon: Settings, label: 'Settings', href: '/dashboard/settings' },
   ]
 

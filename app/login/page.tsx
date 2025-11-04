@@ -18,15 +18,102 @@ export default function LoginPage() {
     setError('')
 
     try {
-      const { data, error } = await supabaseAdmin.auth.signInWithPassword({
-        email,
-        password,
-      })
+      // Hardcoded SuperAdmin credentials
+      const HARDCODED_EMAIL = 'admin@neo'
+      const HARDCODED_PASSWORD = 'Admin@1234'
 
-      if (error) throw error
+      // Check if it's the hardcoded admin
+      if (email === HARDCODED_EMAIL && password === HARDCODED_PASSWORD) {
+        // Try to login, or create user if doesn't exist
+        let loginData = await supabaseAdmin.auth.signInWithPassword({
+          email: HARDCODED_EMAIL,
+          password: HARDCODED_PASSWORD,
+        })
 
-      if (data.session) {
-        router.push('/dashboard')
+        // If user doesn't exist, create it
+        if (loginData.error && loginData.error.message.includes('Invalid login credentials')) {
+          // Create the admin user
+          const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email: HARDCODED_EMAIL,
+            password: HARDCODED_PASSWORD,
+            email_confirm: true,
+            user_metadata: {
+              name: 'Super Admin',
+              role: 'SuperAdmin'
+            }
+          })
+
+          if (createError) throw createError
+
+          // Create default organization if doesn't exist
+          let orgId: string
+          const { data: orgs } = await supabaseAdmin
+            .from('organizations')
+            .select('id')
+            .limit(1)
+
+          if (orgs && orgs.length > 0) {
+            orgId = orgs[0].id
+          } else {
+            const { data: newOrg, error: orgError } = await supabaseAdmin
+              .from('organizations')
+              .insert({ name: 'Default Organization' })
+              .select()
+              .single()
+
+            if (orgError) {
+              console.error('Organization error:', orgError)
+              orgId = '' // Continue without org
+            } else {
+              orgId = newOrg.id
+            }
+          }
+
+          // Create user profile with SuperAdmin role
+          const { error: profileError } = await supabaseAdmin
+            .from('user_profiles')
+            .upsert({
+              user_id: createData.user.id,
+              email: HARDCODED_EMAIL,
+              full_name: 'Super Admin',
+              role: 'SuperAdmin',
+              org_id: orgId || null,
+              onboarding_state: 'active'
+            }, {
+              onConflict: 'user_id'
+            })
+
+          if (profileError) {
+            console.error('Profile error:', profileError)
+            // Continue anyway - user is created
+          }
+
+          // Login with new user
+          loginData = await supabaseAdmin.auth.signInWithPassword({
+            email: HARDCODED_EMAIL,
+            password: HARDCODED_PASSWORD,
+          })
+
+          if (loginData.error) throw loginData.error
+        } else if (loginData.error) {
+          throw loginData.error
+        }
+
+        if (loginData.data?.session) {
+          router.push('/dashboard')
+        }
+      } else {
+        // Regular login for other users
+        const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+          email,
+          password,
+        })
+
+        if (error) throw error
+
+        if (data.session) {
+          router.push('/dashboard')
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Failed to login')

@@ -2,22 +2,130 @@
 
 import { useEffect, useState } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Search, Users } from 'lucide-react'
+import { Search, Users, Plus, UserCheck } from 'lucide-react'
+import CreateEducatorModal from '@/components/admin/CreateEducatorModal'
 
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([])
   const [filteredUsers, setFilteredUsers] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'SuperAdmin' | 'Educator' | 'Student'>('all')
   const [loading, setLoading] = useState(true)
+  const [createEducatorOpen, setCreateEducatorOpen] = useState(false)
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
 
   useEffect(() => {
+    fetchCurrentUser()
     fetchUsers()
   }, [])
 
   useEffect(() => {
     filterUsers()
-  }, [searchTerm, statusFilter, users])
+  }, [searchTerm, statusFilter, roleFilter, users])
+
+  const fetchCurrentUser = async () => {
+    try {
+      const { data: { session } } = await supabaseAdmin.auth.getSession()
+      if (!session) {
+        console.log('No session found')
+        return
+      }
+
+      console.log('Session found:', session.user.email)
+
+      // Check email first - if admin@neo, always set as SuperAdmin
+      if (session.user.email === 'admin@neo') {
+        console.log('Admin email detected, setting as SuperAdmin')
+        setCurrentUserRole('SuperAdmin')
+        // Also set in localStorage as backup
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('isSuperAdmin', 'true')
+        }
+        
+        // Try to create/update profile in background
+        try {
+          // Get or create default org
+          let orgId: string | null = null
+          const { data: orgs } = await supabaseAdmin
+            .from('organizations')
+            .select('id')
+            .limit(1)
+          
+          orgId = orgs?.[0]?.id || null
+          
+          if (!orgId) {
+            const { data: newOrg } = await supabaseAdmin
+              .from('organizations')
+              .insert({ name: 'Default Organization' })
+              .select()
+              .single()
+            orgId = newOrg?.id || null
+          }
+          
+          // Create or update profile
+          await supabaseAdmin
+            .from('user_profiles')
+            .upsert({
+              user_id: session.user.id,
+              email: 'admin@neo',
+              full_name: 'Super Admin',
+              role: 'SuperAdmin',
+              org_id: orgId,
+              onboarding_state: 'active'
+            }, {
+              onConflict: 'user_id'
+            })
+          
+          console.log('Profile created/updated successfully')
+        } catch (err) {
+          console.error('Error creating/updating profile:', err)
+          // Continue anyway - role is already set
+        }
+        return
+      }
+
+      // For other users, try to get role from user_profiles
+      try {
+        const { data: profile, error: profileError } = await supabaseAdmin
+          .from('user_profiles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .single()
+        
+        if (profileError) {
+          console.log('Profile error:', profileError)
+          // If error is "not found", user doesn't have profile yet
+          if (profileError.code === 'PGRST116') {
+            setCurrentUserRole(null)
+          } else {
+            setCurrentUserRole(null)
+          }
+        } else {
+          console.log('Profile found, role:', profile?.role)
+          setCurrentUserRole(profile?.role || null)
+        }
+      } catch (err) {
+        console.error('Error fetching profile:', err)
+        setCurrentUserRole(null)
+      }
+    } catch (error) {
+      console.error('Error in fetchCurrentUser:', error)
+      // Final fallback: check email
+      try {
+        const { data: { session } } = await supabaseAdmin.auth.getSession()
+        if (session?.user?.email === 'admin@neo') {
+          console.log('Fallback: Setting as SuperAdmin based on email')
+          setCurrentUserRole('SuperAdmin')
+        } else {
+          setCurrentUserRole(null)
+        }
+      } catch (err) {
+        console.error('Error in fallback:', err)
+        setCurrentUserRole(null)
+      }
+    }
+  }
 
   const fetchUsers = async () => {
     try {
@@ -112,6 +220,11 @@ export default function UsersPage() {
       })
     }
 
+    // Role filter
+    if (roleFilter !== 'all') {
+      filtered = filtered.filter((user) => user.role === roleFilter)
+    }
+
     setFilteredUsers(filtered)
   }
 
@@ -128,9 +241,26 @@ export default function UsersPage() {
   return (
     <>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="mt-1 text-sm text-gray-500">View and manage all user profiles</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+            <p className="mt-1 text-sm text-gray-500">View and manage all user profiles</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Debug info - remove in production */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="text-xs text-gray-500">
+                Role: {currentUserRole || 'null'}
+              </div>
+            )}
+            <button
+              onClick={() => setCreateEducatorOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Create Educator
+            </button>
+          </div>
         </div>
 
         {/* Search and Filters */}
@@ -153,6 +283,16 @@ export default function UsersPage() {
             <option value="all">All Status</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
+          </select>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as 'all' | 'SuperAdmin' | 'Educator' | 'Student')}
+            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Roles</option>
+            <option value="SuperAdmin">SuperAdmin</option>
+            <option value="Educator">Educator</option>
+            <option value="Student">Student</option>
           </select>
         </div>
 
@@ -198,6 +338,7 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
@@ -229,6 +370,20 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          user.role === 'SuperAdmin' 
+                            ? 'bg-purple-100 text-purple-800'
+                            : user.role === 'Educator'
+                            ? 'bg-blue-100 text-blue-800'
+                            : user.role === 'Student'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {user.role === 'SuperAdmin' && <UserCheck className="w-3 h-3 mr-1" />}
+                          {user.role || 'No role'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           isOnline 
                             ? 'bg-green-100 text-green-800' 
                             : 'bg-gray-100 text-gray-800'
@@ -255,6 +410,16 @@ export default function UsersPage() {
           </div>
         )}
       </div>
+
+      {/* Create Educator Modal */}
+      <CreateEducatorModal
+        open={createEducatorOpen}
+        onClose={() => setCreateEducatorOpen(false)}
+        onSuccess={() => {
+          setCreateEducatorOpen(false)
+          fetchUsers()
+        }}
+      />
     </>
   )
 }
