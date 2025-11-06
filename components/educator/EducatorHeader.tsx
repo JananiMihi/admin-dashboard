@@ -20,13 +20,27 @@ export default function EducatorHeader() {
       if (session) {
         const { data: profile } = await supabaseAdmin
           .from('user_profiles')
-          .select('full_name, email')
+          .select('full_name, email, org_id, role')
           .eq('user_id', session.user.id)
           .single()
         
+        // Fetch organization name if org_id exists
+        let organizationName = null
+        if (profile?.org_id) {
+          const { data: org } = await supabaseAdmin
+            .from('organizations')
+            .select('name')
+            .eq('id', profile.org_id)
+            .single()
+          organizationName = org?.name || null
+        }
+        
         setUser({
           ...session.user,
-          profile: profile
+          profile: {
+            ...profile,
+            organizationName
+          }
         })
       }
     } catch (error) {
@@ -75,7 +89,9 @@ export default function EducatorHeader() {
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
                   {user?.profile?.full_name || user?.email || 'Educator'}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Educator</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {user?.profile?.role === 'Educator' ? 'Educator' : user?.profile?.organizationName || 'Educator'}
+                </p>
               </div>
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-white">
                 <User className="h-5 w-5" />
@@ -94,5 +110,7 @@ export default function EducatorHeader() {
     </header>
   )
 }
+
+
 
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Search, Users, Plus, UserCheck } from 'lucide-react'
+import { Search, Users, Plus, UserCheck, Key, Mail } from 'lucide-react'
 import CreateEducatorModal from '@/components/admin/CreateEducatorModal'
 
 export default function UsersPage() {
@@ -14,6 +14,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [createEducatorOpen, setCreateEducatorOpen] = useState(false)
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null)
 
   useEffect(() => {
     fetchCurrentUser()
@@ -124,6 +125,33 @@ export default function UsersPage() {
         console.error('Error in fallback:', err)
         setCurrentUserRole(null)
       }
+    }
+  }
+
+  const resetEducatorPassword = async (userId: string, email: string) => {
+    if (!confirm(`Send password reset link to ${email}?`)) {
+      return
+    }
+
+    setResettingPassword(userId)
+    try {
+      const response = await fetch('/api/educators/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, email })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to generate reset link')
+      }
+
+      alert(`Password reset link has been sent to ${email}. The educator can use it to reset their password.`)
+    } catch (error: any) {
+      alert(error.message || 'Failed to reset password')
+    } finally {
+      setResettingPassword(null)
     }
   }
 
@@ -254,6 +282,17 @@ export default function UsersPage() {
               </div>
             )}
             <button
+              onClick={() => {
+                const verifyUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
+                window.location.href = `${verifyUrl}/auth/verify-educator`
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              title="Open Educator Verification Page"
+            >
+              <Mail className="w-5 h-5" />
+              Verify Educator
+            </button>
+            <button
               onClick={() => setCreateEducatorOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
@@ -340,6 +379,9 @@ export default function UsersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  {currentUserRole === 'SuperAdmin' && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -394,6 +436,21 @@ export default function UsersPage() {
                           {isOnline ? 'Online' : 'Offline'}
                         </span>
                       </td>
+                      {currentUserRole === 'SuperAdmin' && (
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {user.role === 'Educator' && (
+                            <button
+                              onClick={() => resetEducatorPassword(user.user_id || user.id, user.email)}
+                              disabled={resettingPassword === (user.user_id || user.id)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              title="Send password reset link"
+                            >
+                              <Key className="w-3 h-3" />
+                              {resettingPassword === (user.user_id || user.id) ? 'Sending...' : 'Reset Password'}
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   )
                 })}

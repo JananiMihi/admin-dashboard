@@ -39,59 +39,40 @@ export default function CreateClassModal({ open, onClose, onSuccess }: CreateCla
       const { data: { session } } = await supabaseAdmin.auth.getSession()
       if (!session) throw new Error('Not authenticated')
 
-      // Get user's org_id
-      const { data: profile } = await supabaseAdmin
-        .from('user_profiles')
-        .select('org_id')
-        .eq('user_id', session.user.id)
-        .single()
-
-      if (!profile?.org_id) throw new Error('No organization assigned')
-
-      // Create class
-      const { data: classData, error: classError } = await supabaseAdmin
-        .from('classes')
-        .insert({
-          org_id: profile.org_id,
+      // Use API route instead of direct Supabase call to bypass RLS
+      const response = await fetch('/api/educator/classes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
           name: formData.name,
           subject: formData.subject || null,
           grade: formData.grade || null,
           section: formData.section || null,
-          timezone: formData.timezone,
-          created_by: session.user.id
+          timezone: formData.timezone
         })
-        .select()
-        .single()
+      })
 
-      if (classError) throw classError
+      const result = await response.json()
 
-      // Generate join code
-      const { data: codeData, error: codeError } = await supabaseAdmin.rpc('generate_class_code')
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create class')
+      }
 
-      if (codeError) throw codeError
+      if (!result.success || !result.class) {
+        throw new Error('Class creation failed')
+      }
 
-      // Create join code
-      const { data: joinCodeData, error: joinCodeError } = await supabaseAdmin
-        .from('join_codes')
-        .insert({
-          org_id: profile.org_id,
-          type: 'class',
-          class_id: classData.id,
-          code: codeData,
-          max_uses: 0, // Unlimited by default
-          label: `Join code for ${formData.name}`
-        })
-        .select()
-        .single()
-
-      if (joinCodeError) throw joinCodeError
-
-      const joinLink = `${window.location.origin}/join/${codeData}`
+      const joinLink = result.code 
+        ? `${window.location.origin}/join/${result.code}`
+        : null
 
       setCreatedClass({
-        id: classData.id,
-        code: codeData,
-        joinLink
+        id: result.class.id,
+        code: result.code || 'N/A',
+        joinLink: joinLink || 'N/A'
       })
 
       setStep('success')
@@ -320,5 +301,8 @@ export default function CreateClassModal({ open, onClose, onSuccess }: CreateCla
     </div>
   )
 }
+
+
+
 
 

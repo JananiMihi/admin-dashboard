@@ -27,9 +27,14 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
   const [createdEducator, setCreatedEducator] = useState<{
     userId: string
     email: string
-    magicLink: string
+    verificationLink?: string
+    loginUrl?: string
+    resetLink?: string
   } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [showCreateOrg, setShowCreateOrg] = useState(false)
+  const [newOrgName, setNewOrgName] = useState('')
+  const [creatingOrg, setCreatingOrg] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -100,25 +105,15 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
       setCreatedEducator({
         userId: result.userId,
         email: result.email,
-        magicLink: result.magicLink
+        verificationLink: result.verificationLink,
+        loginUrl: result.loginUrl,
+        resetLink: result.resetLink
       })
-
-      // Check if it's an existing user update
-      if (result.existingUser) {
-        // Show different message for existing user
-        setCreatedEducator({
-          userId: result.userId,
-          email: result.email,
-          magicLink: result.magicLink
-        })
-        setStep('success')
-      } else {
-        setCreatedEducator({
-          userId: result.userId,
-          email: result.email,
-          magicLink: result.magicLink
-        })
-        setStep('success')
+      setStep('success')
+      
+      // Refresh organizations list in case a new one was created
+      if (showCreateOrg) {
+        fetchOrganizations()
       }
     } catch (error: any) {
       // Better error handling
@@ -135,11 +130,47 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
     }
   }
 
-  const copyMagicLink = async () => {
-    if (createdEducator?.magicLink) {
-      await navigator.clipboard.writeText(createdEducator.magicLink)
+  const copyToClipboard = async (text: string) => {
+    if (text) {
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const createOrganization = async () => {
+    if (!newOrgName.trim()) {
+      alert('Please enter an organization name')
+      return
+    }
+
+    setCreatingOrg(true)
+    try {
+      const response = await fetch('/api/organizations/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newOrgName.trim() })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create organization')
+      }
+
+      // Refresh organizations list
+      await fetchOrganizations()
+      
+      // Select the newly created organization
+      setFormData({ ...formData, orgId: result.organization.id })
+      
+      // Hide create org form
+      setShowCreateOrg(false)
+      setNewOrgName('')
+    } catch (error: any) {
+      alert(error.message || 'Failed to create organization')
+    } finally {
+      setCreatingOrg(false)
     }
   }
 
@@ -151,6 +182,8 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
       orgId: ''
     })
     setCreatedEducator(null)
+    setShowCreateOrg(false)
+    setNewOrgName('')
     onClose()
   }
 
@@ -199,7 +232,7 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
                   placeholder="educator@example.com"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  A magic link will be sent to this email for password setup
+                  Verification email will be sent to this email address
                 </p>
               </div>
 
@@ -207,26 +240,72 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Organization <span className="text-red-500">*</span>
                 </label>
-                <select
-                  required
-                  value={formData.orgId}
-                  onChange={(e) => setFormData({ ...formData, orgId: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="">Select an organization</option>
-                  {organizations.map((org) => (
-                    <option key={org.id} value={org.id}>
-                      {org.name}
-                    </option>
-                  ))}
-                </select>
+                {!showCreateOrg ? (
+                  <>
+                    <select
+                      required={!showCreateOrg}
+                      value={formData.orgId}
+                      onChange={(e) => setFormData({ ...formData, orgId: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="">Select an organization</option>
+                      {organizations.map((org) => (
+                        <option key={org.id} value={org.id}>
+                          {org.name}
+                        </option>
+                      ))}
+                    </select>
+                    {organizations.length === 0 && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        No organizations found. Click below to create one.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateOrg(true)}
+                      className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      + Create New Organization
+                    </button>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={newOrgName}
+                      onChange={(e) => setNewOrgName(e.target.value)}
+                      placeholder="Enter organization name"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={createOrganization}
+                        disabled={creatingOrg}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+                      >
+                        {creatingOrg ? 'Creating...' : 'Create Organization'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateOrg(false)
+                          setNewOrgName('')
+                        }}
+                        className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Info box */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                 <p className="text-sm text-blue-800 dark:text-blue-300">
-                  <strong>Note:</strong> After creating the educator account, a magic link will be generated
-                  for password setup. You can copy the link and send it to the educator via email.
+                  <strong>Note:</strong> After creating the educator account, a verification email will be sent
+                  to the educator's email address. They must click the verification link to set up their password and activate their account.
                 </p>
               </div>
 
@@ -261,7 +340,7 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
                   Educator Created Successfully!
                 </h2>
                 <p className="text-gray-600 dark:text-gray-400">
-                  Share the magic link with the educator to set up their password
+                  Verification email has been sent to the educator's email address
                 </p>
               </div>
 
@@ -273,31 +352,61 @@ export default function CreateEducatorModal({ open, onClose, onSuccess }: Create
                     <p className="font-semibold text-gray-900 dark:text-white">{createdEducator.email}</p>
                   </div>
 
-                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-2">
-                        <Mail className="w-4 h-4" />
-                        Magic Link for Password Setup
+                  {createdEducator.verificationLink && (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-2">
+                          <Mail className="w-4 h-4" />
+                          Verification Link
+                        </p>
+                        <button
+                          onClick={() => copyToClipboard(createdEducator.verificationLink!)}
+                          className="p-2 hover:bg-blue-100 dark:hover:bg-blue-800 rounded transition-colors"
+                          title="Copy verification link"
+                        >
+                          {copied ? (
+                            <Check className="w-5 h-5 text-green-600" />
+                          ) : (
+                            <Copy className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-800 dark:text-blue-400 break-all font-mono bg-white dark:bg-gray-800 p-2 rounded mt-2">
+                        {createdEducator.verificationLink}
                       </p>
-                      <button
-                        onClick={copyMagicLink}
-                        className="p-2 hover:bg-blue-100 dark:hover:bg-blue-800 rounded transition-colors"
-                        title="Copy magic link"
-                      >
-                        {copied ? (
-                          <Check className="w-5 h-5 text-green-600" />
-                        ) : (
-                          <Copy className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                        )}
-                      </button>
+                      <p className="text-xs text-blue-700 dark:text-blue-500 mt-2">
+                        Verification email has been sent. The educator can click this link to verify their account and set up their password.
+                      </p>
                     </div>
-                    <p className="text-xs text-blue-800 dark:text-blue-400 break-all font-mono bg-white dark:bg-gray-800 p-2 rounded mt-2">
-                      {createdEducator.magicLink}
-                    </p>
-                    <p className="text-xs text-blue-700 dark:text-blue-500 mt-2">
-                      Copy this link and send it to the educator via email. They'll use it to set up their password.
-                    </p>
-                  </div>
+                  )}
+                  
+                  {createdEducator.resetLink && (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-2">
+                          <Mail className="w-4 h-4" />
+                          Password Reset Link
+                        </p>
+                        <button
+                          onClick={() => copyToClipboard(createdEducator.resetLink!)}
+                          className="p-2 hover:bg-blue-100 dark:hover:bg-blue-800 rounded transition-colors"
+                          title="Copy reset link"
+                        >
+                          {copied ? (
+                            <Check className="w-5 h-5 text-green-600" />
+                          ) : (
+                            <Copy className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-800 dark:text-blue-400 break-all font-mono bg-white dark:bg-gray-800 p-2 rounded mt-2">
+                        {createdEducator.resetLink}
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-500 mt-2">
+                        Password reset link has been sent via email.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Actions */}
                   <div className="flex gap-3 pt-4">

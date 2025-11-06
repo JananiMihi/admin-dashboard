@@ -225,3 +225,6 @@ When clicked, it redirects to password setup page where educator can set their p
 **All set! SuperAdmin can now create educator accounts easily! 🚀**
 
 
+
+
+

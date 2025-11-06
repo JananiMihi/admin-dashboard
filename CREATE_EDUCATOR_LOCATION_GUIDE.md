@@ -364,3 +364,6 @@ const response = await fetch('/api/educators/create', {
 **Everything is ready! Just go to `/dashboard/users` and click "Create Educator"! 🚀**
 
 
+
+
+

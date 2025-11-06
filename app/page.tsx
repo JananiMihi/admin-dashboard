@@ -8,12 +8,23 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    // Simple check if admin is authenticated
+    // Check auth and redirect based on role
     const checkAuth = async () => {
       try {
         const { data } = await supabaseAdmin.auth.getSession()
         if (data.session) {
-          router.push('/dashboard/overview')
+          // Check user role to redirect appropriately
+          const { data: profile } = await supabaseAdmin
+            .from('user_profiles')
+            .select('role')
+            .eq('user_id', data.session.user.id)
+            .single()
+          
+          if (profile?.role === 'Educator') {
+            router.push('/dashboard/educator')
+          } else {
+            router.push('/dashboard/overview')
+          }
         } else {
           router.push('/login')
         }

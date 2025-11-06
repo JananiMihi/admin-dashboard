@@ -9,6 +9,38 @@ interface HeaderProps {
   onMenuClick: () => void
 }
 
+function UserMenu({ user }: { user: any }) {
+  const [role, setRole] = useState<string>('Administrator')
+  
+  useEffect(() => {
+    const fetchRole = async () => {
+      if (user?.id) {
+        try {
+          const { data: profile } = await supabaseAdmin
+            .from('user_profiles')
+            .select('role')
+            .eq('user_id', user.id)
+            .single()
+          
+          if (profile?.role) {
+            setRole(profile.role === 'Educator' ? 'Educator' : profile.role === 'SuperAdmin' ? 'Super Admin' : 'Administrator')
+          }
+        } catch (error) {
+          console.error('Error fetching role:', error)
+        }
+      }
+    }
+    fetchRole()
+  }, [user])
+  
+  return (
+    <div className="text-right hidden md:block">
+      <p className="text-sm font-medium text-gray-900">{user?.email || 'Admin'}</p>
+      <p className="text-xs text-gray-500">{role}</p>
+    </div>
+  )
+}
+
 export default function Header({ onMenuClick }: HeaderProps) {
   const [user, setUser] = useState<any>(null)
   const [onlineUsers, setOnlineUsers] = useState(0)
@@ -75,10 +107,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
         {/* User menu */}
         <div className="flex items-center gap-3">
-          <div className="text-right hidden md:block">
-            <p className="text-sm font-medium text-gray-900">{user?.email || 'Admin'}</p>
-            <p className="text-xs text-gray-500">Administrator</p>
-          </div>
+          <UserMenu user={user} />
           <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center">
             <span className="text-blue-600 font-medium text-sm">
               {user?.email?.[0]?.toUpperCase() || 'A'}

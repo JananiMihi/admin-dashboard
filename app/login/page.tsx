@@ -1,16 +1,48 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
+import { useState } from 'react'
 import { LogIn } from 'lucide-react'
 
 export default function LoginPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const router = useRouter()
+
+  useEffect(() => {
+    // Check if already logged in
+    const checkSession = async () => {
+      const { data: { session } } = await supabaseAdmin.auth.getSession()
+      if (session) {
+        // Check user role and redirect accordingly
+        try {
+          const { data: profile } = await supabaseAdmin
+            .from('user_profiles')
+            .select('role')
+            .eq('user_id', session.user.id)
+            .single()
+
+          // SuperAdmin and other admin roles go to admin dashboard
+          if (profile?.role === 'SuperAdmin' || profile?.role === 'Admin') {
+            router.push('/dashboard')
+          } else if (profile?.role === 'Educator') {
+            // Educators should use educator login page
+            router.push('/auth/educator-login')
+          } else {
+            router.push('/dashboard')
+          }
+        } catch (error) {
+          router.push('/dashboard')
+        }
+      }
+    }
+    checkSession()
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,73 +50,26 @@ export default function LoginPage() {
     setError('')
 
     try {
-      // Hardcoded SuperAdmin credentials
+      // Check if this is the hardcoded admin user
       const HARDCODED_EMAIL = 'admin@neo'
-      const HARDCODED_PASSWORD = 'Admin@1234'
+      const HARDCODED_PASSWORD = 'admin123'
 
-      // Check if it's the hardcoded admin
       if (email === HARDCODED_EMAIL && password === HARDCODED_PASSWORD) {
-        // Try to login, or create user if doesn't exist
+        // Check if user exists, if not create them
         let loginData = await supabaseAdmin.auth.signInWithPassword({
           email: HARDCODED_EMAIL,
           password: HARDCODED_PASSWORD,
         })
 
-        // If user doesn't exist, create it
         if (loginData.error && loginData.error.message.includes('Invalid login credentials')) {
-          // Create the admin user
-          const { data: createData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+          // User doesn't exist, create them
+          const { data: signUpData, error: signUpError } = await supabaseAdmin.auth.signUp({
             email: HARDCODED_EMAIL,
             password: HARDCODED_PASSWORD,
-            email_confirm: true,
-            user_metadata: {
-              name: 'Super Admin',
-              role: 'SuperAdmin'
-            }
           })
 
-          if (createError) throw createError
-
-          // Create default organization if doesn't exist
-          let orgId: string
-          const { data: orgs } = await supabaseAdmin
-            .from('organizations')
-            .select('id')
-            .limit(1)
-
-          if (orgs && orgs.length > 0) {
-            orgId = orgs[0].id
-          } else {
-            const { data: newOrg, error: orgError } = await supabaseAdmin
-              .from('organizations')
-              .insert({ name: 'Default Organization' })
-              .select()
-              .single()
-
-            if (orgError) {
-              console.error('Organization error:', orgError)
-              orgId = '' // Continue without org
-            } else {
-              orgId = newOrg.id
-            }
-          }
-
-          // Create user profile with SuperAdmin role
-          const { error: profileError } = await supabaseAdmin
-            .from('user_profiles')
-            .upsert({
-              user_id: createData.user.id,
-              email: HARDCODED_EMAIL,
-              full_name: 'Super Admin',
-              role: 'SuperAdmin',
-              org_id: orgId || null,
-              onboarding_state: 'active'
-            }, {
-              onConflict: 'user_id'
-            })
-
-          if (profileError) {
-            console.error('Profile error:', profileError)
+          if (signUpError) {
+            console.error('Sign up error:', signUpError)
             // Continue anyway - user is created
           }
 
@@ -103,7 +88,7 @@ export default function LoginPage() {
           router.push('/dashboard')
         }
       } else {
-        // Regular login for other users
+        // Regular login for other users (should not be educators - they use educator-login)
         const { data, error } = await supabaseAdmin.auth.signInWithPassword({
           email,
           password,
@@ -112,7 +97,24 @@ export default function LoginPage() {
         if (error) throw error
 
         if (data.session) {
-          router.push('/dashboard')
+          // Check user role and redirect accordingly
+          const { data: profile } = await supabaseAdmin
+            .from('user_profiles')
+            .select('role')
+            .eq('user_id', data.session.user.id)
+            .single()
+
+          // If educator tries to login here, redirect to educator login page
+          if (profile?.role === 'Educator') {
+            await supabaseAdmin.auth.signOut()
+            router.push('/auth/educator-login')
+            setError('Please use the Educator Login page to sign in.')
+            setLoading(false)
+            return
+          } else {
+            // SuperAdmin and other admin roles go to admin dashboard
+            router.push('/dashboard')
+          }
         }
       }
     } catch (err: any) {
@@ -123,67 +125,76 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <LogIn className="mx-auto h-12 w-12 text-blue-600" />
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Admin Dashboard
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Sign in to manage student progress
-          </p>
+          <div className="mx-auto h-12 w-12 text-blue-600 flex items-center justify-center">
+            <LogIn className="h-12 w-12" />
+          </div>
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">Admin Dashboard</h2>
+          <p className="mt-2 text-sm text-gray-600">Sign in to manage student progress</p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-sm text-red-800">{error}</p>
+          </div>
+        )}
 
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email Address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+        <form className="mt-8 space-y-6 bg-white rounded-lg shadow p-6" onSubmit={handleLogin}>
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              Email Address
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+              placeholder="admin@neo"
+            />
+          </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+              placeholder="••••••••"
+            />
           </div>
 
           <div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
         </form>
+
+        <div className="text-center">
+          <p className="text-sm text-gray-600">
+            Are you an educator?{' '}
+            <a href="/auth/educator-login" className="font-medium text-blue-600 hover:text-blue-500">
+              Educator Login
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   )

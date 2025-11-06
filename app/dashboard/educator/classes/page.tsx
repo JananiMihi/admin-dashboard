@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Plus, GraduationCap, Users, Copy, ExternalLink, MoreVertical } from 'lucide-react'
+import { Plus, GraduationCap, Users, Copy, ExternalLink, Trash2, AlertTriangle } from 'lucide-react'
 import CreateClassModal from '@/components/educator/CreateClassModal'
 import Link from 'next/link'
 
@@ -24,6 +24,9 @@ export default function ClassesPage() {
   const [classes, setClasses] = useState<Class[]>([])
   const [loading, setLoading] = useState(true)
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [deleteClassConfirmOpen, setDeleteClassConfirmOpen] = useState(false)
+  const [classToDelete, setClassToDelete] = useState<Class | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchClasses()
@@ -32,46 +35,27 @@ export default function ClassesPage() {
   const fetchClasses = async () => {
     try {
       const { data: { session } } = await supabaseAdmin.auth.getSession()
-      if (!session) return
+      if (!session) {
+        setLoading(false)
+        return
+      }
 
-      // Get user's org_id
-      const { data: profile } = await supabaseAdmin
-        .from('user_profiles')
-        .select('org_id')
-        .eq('user_id', session.user.id)
-        .single()
+      // Use API route to bypass RLS
+      const response = await fetch('/api/educator/classes/list', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
 
-      if (!profile?.org_id) return
+      const result = await response.json()
 
-      // Fetch classes with join codes
-      const { data, error } = await supabaseAdmin
-        .from('classes')
-        .select(`
-          *,
-          join_codes!inner(code, used_count, max_uses)
-        `)
-        .eq('org_id', profile.org_id)
-        .eq('archived', false)
-        .order('created_at', { ascending: false })
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch classes')
+      }
 
-      if (error) throw error
-
-      // Get student counts
-      const classesWithCounts = await Promise.all(
-        (data || []).map(async (cls) => {
-          const { count } = await supabaseAdmin
-            .from('enrollments')
-            .select('*', { count: 'exact', head: true })
-            .eq('class_id', cls.id)
-
-          return {
-            ...cls,
-            student_count: count || 0
-          }
-        })
-      )
-
-      setClasses(classesWithCounts as any)
+      if (result.success && result.classes) {
+        setClasses(result.classes as any)
+      }
     } catch (error) {
       console.error('Error fetching classes:', error)
     } finally {
@@ -87,6 +71,39 @@ export default function ClassesPage() {
 
   const getJoinLink = (code: string) => {
     return `${window.location.origin}/join/${code}`
+  }
+
+  const handleDeleteClass = async () => {
+    if (!classToDelete) return
+
+    try {
+      setDeleting(true)
+      const { data: { session } } = await supabaseAdmin.auth.getSession()
+      if (!session) throw new Error('Not authenticated')
+
+      const response = await fetch(`/api/educator/classes/${classToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete class')
+      }
+
+      // Refresh classes list
+      await fetchClasses()
+      setDeleteClassConfirmOpen(false)
+      setClassToDelete(null)
+    } catch (error: any) {
+      console.error('Error deleting class:', error)
+      alert(error.message || 'Failed to delete class')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (loading) {
@@ -107,13 +124,15 @@ export default function ClassesPage() {
             Manage your classes and student enrollments
           </p>
         </div>
-        <button
-          onClick={() => setCreateModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Create Class
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Create Class
+          </button>
+        </div>
       </div>
 
       {/* Classes Grid */}
@@ -159,8 +178,15 @@ export default function ClassesPage() {
                       {cls.section && <span>• Section {cls.section}</span>}
                     </div>
                   </div>
-                  <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                    <MoreVertical className="w-5 h-5" />
+                  <button
+                    onClick={() => {
+                      setClassToDelete(cls)
+                      setDeleteClassConfirmOpen(true)
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                    title="Delete class"
+                  >
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
 
@@ -221,8 +247,67 @@ export default function ClassesPage() {
           fetchClasses()
         }}
       />
+
+      {/* Delete Class Confirmation Modal */}
+      {deleteClassConfirmOpen && classToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex-shrink-0 w-12 h-12 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Delete Class
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              <p className="text-gray-700 dark:text-gray-300 mb-6">
+                Are you sure you want to delete <strong>{classToDelete.name}</strong>? 
+                This will remove the class and all associated data. Students will be unenrolled from this class.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
+                    setDeleteClassConfirmOpen(false)
+                    setClassToDelete(null)
+                  }}
+                  disabled={deleting}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteClass}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Class
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+
+
 
 
