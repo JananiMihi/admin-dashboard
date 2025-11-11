@@ -150,6 +150,15 @@ export async function POST(request: NextRequest) {
 
     // ----- IMAGE UPLOAD BLOCK: use variables defined above -----
     const missionFolder = `M${pad2(orderNo)}`;
+    const sanitizeCustomFolder = (folder: string) =>
+      folder
+        .trim()
+        .replace(/^[./]+/, '')
+        .replace(/[^a-zA-Z0-9/_-]+/g, '-')
+        .replace(/\/+/g, '/')
+        .replace(/^-+|-+$/g, '')
+    const providedImageFolderRaw = (formData.get('image_folder') || '').toString()
+    const providedImageFolder = sanitizeCustomFolder(providedImageFolderRaw)
     const imagePaths: Record<string, string> = {}
     const uploadedImages: string[] = []
     const bucketName = 'missions-assets' // For images
@@ -175,7 +184,11 @@ export async function POST(request: NextRequest) {
       for (const imageFile of imageFiles) {
         if (imageFile && imageFile.size > 0) {
           const originalName = imageFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-          const filePath = `${missionFolder}/images/${originalName}`
+          const folderBase =
+            providedImageFolder ||
+            missionFolder ||
+            `generator/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+          const filePath = `${folderBase}/images/${originalName}`
           const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
             .from(bucketName)
             .upload(filePath, imageFile, {

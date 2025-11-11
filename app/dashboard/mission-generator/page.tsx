@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Wand2, Download, Plus, Trash2 } from 'lucide-react'
+import { Wand2, Download, Plus, Trash2, Upload } from 'lucide-react'
 
 const STORAGE_KEY = 'mission-generator-form'
 
@@ -59,13 +59,25 @@ const createDefaultFormData = () => ({
 
 type FormDataState = ReturnType<typeof createDefaultFormData>
 
+const getBareFileName = (path: string) => {
+  if (!path) return ''
+  const parts = path.trim().split('/')
+  return parts[parts.length - 1] || path
+}
+
 const sanitizeFileName = (name: string) =>
-  name
-    .trim()
+  getBareFileName(name)
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9._-]/g, '')
     || 'asset'
+
+const sanitizeMissionUid = (value: string) =>
+  value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toUpperCase() || `MISSION-${Date.now()}`
 
 interface ImageDropZoneProps {
   title: string
@@ -152,7 +164,9 @@ function ImageDropZone({ title, path, previewUrl, file, onSelect, onRemove }: Im
           ) : (
             <p className="text-xs text-gray-500">Preview unavailable</p>
           )}
-          <p className="font-medium text-gray-800 break-all">{path}</p>
+          <p className="font-medium text-gray-800 break-all">
+            {path.split('/').pop() || path}
+          </p>
           <div className="flex justify-center gap-2">
             <button
               type="button"
@@ -274,6 +288,74 @@ const normalizeFormData = (raw: any): FormDataState => {
   }
 }
 
+const UploadPrompt = ({
+  title,
+  description,
+  fields,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+  loading
+}: {
+  title: string
+  description: string
+  fields: Array<{
+    label: string
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+    helper?: string
+  }>
+  confirmLabel: string
+  onConfirm: () => void
+  onCancel: () => void
+  loading?: boolean
+}) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+      <p className="mt-1 text-sm text-gray-600">{description}</p>
+      <div className="mt-4 space-y-4">
+        {fields.map((field, index) => (
+          <div key={index}>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {field.label}
+            </label>
+            <input
+              type="text"
+              value={field.value}
+              onChange={(e) => field.onChange(e.target.value)}
+              placeholder={field.placeholder}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+            {field.helper && (
+              <p className="mt-1 text-xs text-gray-500">{field.helper}</p>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={loading}
+          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          )}
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+)
+
 export default function MissionGeneratorPage() {
   const [jsonOutput, setJsonOutput] = useState('')
   const [formData, setFormData] = useState<FormDataState>(() => {
@@ -304,72 +386,90 @@ export default function MissionGeneratorPage() {
 
   const [assetFiles, setAssetFiles] = useState<Record<string, File>>({})
   const [assetPreviews, setAssetPreviews] = useState<Record<string, string>>({})
+  const [uploadingToSupabase, setUploadingToSupabase] = useState(false)
+  const [uploadErrorMessage, setUploadErrorMessage] = useState('')
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState('')
+  const [uploadingImages, setUploadingImages] = useState(false)
+  const [imageUploadError, setImageUploadError] = useState('')
+  const [imageUploadSuccess, setImageUploadSuccess] = useState('')
+  const [customMissionUid, setCustomMissionUid] = useState('')
+  const [customImageFolder, setCustomImageFolder] = useState('')
+  const [customOrderNo, setCustomOrderNo] = useState('')
+  const [showMissionPrompt, setShowMissionPrompt] = useState<null | 'images' | 'json'>(null)
+  const [loadMissionUid, setLoadMissionUid] = useState('')
+  const [loadingMission, setLoadingMission] = useState(false)
+  const [loadMissionError, setLoadMissionError] = useState('')
+  const [editingMissionUid, setEditingMissionUid] = useState<string | null>(null)
+  const [editingMode, setEditingMode] = useState<'table' | 'storage' | null>(null)
+  const [editingStorageFile, setEditingStorageFile] = useState<string | null>(null)
 
-  const assignAssetPath = (file: File, previousPath?: string) => {
-    if (!file) return previousPath || ''
+  const assignAssetName = (file: File, previousName?: string) => {
+    if (!file) return previousName || ''
 
-    const sanitizedName = sanitizeFileName(file.name)
-    const lastDot = sanitizedName.lastIndexOf('.')
-    const baseName = lastDot !== -1 ? sanitizedName.slice(0, lastDot) : sanitizedName
-    const extension = lastDot !== -1 ? sanitizedName.slice(lastDot) : ''
+    const base = sanitizeFileName(file.name)
+    const lastDot = base.lastIndexOf('.')
+    const namePart = lastDot !== -1 ? base.slice(0, lastDot) : base
+    const extension = lastDot !== -1 ? base.slice(lastDot) : ''
 
-    let assignedPath = previousPath || ''
+    let assignedName = previousName || base
+
     setAssetFiles((prev) => {
-      const nextEntries = previousPath
-        ? Object.entries(prev).filter(([path]) => path !== previousPath)
-        : Object.entries(prev)
-      const next: Record<string, File> = Object.fromEntries(nextEntries)
+      const next = { ...prev }
 
-      let candidate = `assets/${sanitizedName}`
-      let counter = 1
-      while (Object.prototype.hasOwnProperty.call(next, candidate)) {
-        candidate = `assets/${baseName}-${counter}${extension}`
-        counter += 1
-      }
-
-      const blobUrl = URL.createObjectURL(file)
-
-      if (previousPath) {
-        setAssetPreviews((prev) => {
-          if (prev[previousPath]) {
-            URL.revokeObjectURL(prev[previousPath])
+      if (previousName && next[previousName]) {
+        delete next[previousName]
+        setAssetPreviews((prevPreviews) => {
+          if (prevPreviews[previousName]) {
+            URL.revokeObjectURL(prevPreviews[previousName])
           }
-          const updated = { ...prev }
-          delete updated[previousPath]
+          const updated = { ...prevPreviews }
+          delete updated[previousName]
           return updated
         })
       }
 
-      setAssetPreviews((prev) => ({
-        ...prev,
-        [candidate]: blobUrl
-      }))
+      let candidate = base
+      let counter = 1
+      while (next[candidate]) {
+        candidate = `${namePart}-${counter}${extension}`
+        counter += 1
+      }
 
+      assignedName = candidate
       next[candidate] = file
-      assignedPath = candidate
       return next
     })
 
-    return assignedPath
+    setAssetPreviews((prev) => {
+      const next = { ...prev }
+      if (previousName && next[previousName]) {
+        URL.revokeObjectURL(next[previousName])
+        delete next[previousName]
+      }
+      next[assignedName] = URL.createObjectURL(file)
+      return next
+    })
+
+    return assignedName
   }
 
-  const removeAssetPath = (path?: string) => {
-    if (!path) return
+  const removeAssetName = (name?: string) => {
+    if (!name) return
     setAssetFiles((prev) => {
-      if (!Object.prototype.hasOwnProperty.call(prev, path)) {
+      if (!Object.prototype.hasOwnProperty.call(prev, name)) {
         return prev
       }
       const next = { ...prev }
-      delete next[path]
+      delete next[name]
       return next
     })
     setAssetPreviews((prev) => {
-      if (!prev[path]) {
+      if (!prev[name]) {
         return prev
       }
-      URL.revokeObjectURL(prev[path])
+      URL.revokeObjectURL(prev[name])
       const next = { ...prev }
-      delete next[path]
+      delete next[name]
       return next
     })
   }
@@ -377,6 +477,34 @@ export default function MissionGeneratorPage() {
   const generateJSON = () => {
     const json = JSON.stringify(formData, null, 2)
     setJsonOutput(json)
+  }
+
+  const stripAssetPrefixes = (data: FormDataState): FormDataState => {
+    const clone = JSON.parse(JSON.stringify(data)) as FormDataState
+
+    if (clone.missionPageImage) {
+      clone.missionPageImage = getBareFileName(clone.missionPageImage)
+    }
+    if (clone.intro?.image) {
+      clone.intro.image = getBareFileName(clone.intro.image)
+    }
+
+    clone.steps = clone.steps.map((step) => ({
+      ...step,
+      image: step.image ? getBareFileName(step.image) : step.image,
+      blocks:
+        step.blocks?.map((block: any) => ({
+          ...block,
+          image: block.image ? getBareFileName(block.image) : block.image
+        })) || []
+    }))
+
+    clone.resources = clone.resources.map((resource) => ({
+      ...resource,
+      path: resource.path ? getBareFileName(resource.path) : resource.path
+    }))
+
+    return clone
   }
 
   const downloadJSON = () => {
@@ -467,14 +595,27 @@ export default function MissionGeneratorPage() {
       window.localStorage.removeItem(STORAGE_KEY)
     }
     setAssetFiles({})
+    setAssetPreviews({})
+    setUploadErrorMessage('')
+    setUploadSuccessMessage('')
+    setImageUploadError('')
+    setImageUploadSuccess('')
+    setCustomMissionUid('')
+    setCustomImageFolder('')
+    setCustomOrderNo('')
+    setLoadMissionUid('')
+    setLoadMissionError('')
+    setEditingMissionUid(null)
+    setEditingMode(null)
+    setEditingStorageFile(null)
   }
 
   const handleStepImageSelection = (stepIndex: number, file: File) => {
-    const newPath = assignAssetPath(file, formData.steps[stepIndex]?.image)
+    const newName = assignAssetName(file, formData.steps[stepIndex]?.image)
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
       if (newData.steps[stepIndex]) {
-        newData.steps[stepIndex].image = newPath
+        newData.steps[stepIndex].image = newName
       }
       return newData
     })
@@ -483,7 +624,7 @@ export default function MissionGeneratorPage() {
   const handleRemoveStepImage = (stepIndex: number) => {
     const currentPath = formData.steps[stepIndex]?.image
     if (currentPath) {
-      removeAssetPath(currentPath)
+      removeAssetName(currentPath)
       setFormData((prev) => {
         const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
         if (newData.steps[stepIndex]) {
@@ -495,16 +636,19 @@ export default function MissionGeneratorPage() {
   }
 
   const handleMissionImageSelection = (file: File) => {
-    const newPath = assignAssetPath(file, formData.missionPageImage)
+    const newName = assignAssetName(
+      file,
+      formData.missionPageImage ? formData.missionPageImage : undefined
+    )
     setFormData((prev) => ({
       ...prev,
-      missionPageImage: newPath
+      missionPageImage: newName
     }))
   }
 
   const handleMissionImageRemove = () => {
     if (!formData.missionPageImage) return
-    removeAssetPath(formData.missionPageImage)
+    removeAssetName(formData.missionPageImage)
     setFormData((prev) => ({
       ...prev,
       missionPageImage: ''
@@ -512,19 +656,19 @@ export default function MissionGeneratorPage() {
   }
 
   const handleIntroImageSelection = (file: File) => {
-    const newPath = assignAssetPath(file, formData.intro.image)
+    const newName = assignAssetName(file, formData.intro.image)
     setFormData((prev) => ({
       ...prev,
       intro: {
         ...prev.intro,
-        image: newPath
+        image: newName
       }
     }))
   }
 
   const handleIntroImageRemove = () => {
     if (!formData.intro.image) return
-    removeAssetPath(formData.intro.image)
+    removeAssetName(formData.intro.image)
     setFormData((prev) => ({
       ...prev,
       intro: {
@@ -535,8 +679,8 @@ export default function MissionGeneratorPage() {
   }
 
   const handleBlockImageSelection = (stepIndex: number, blockIndex: number, file: File) => {
-    const previousPath = formData.steps[stepIndex]?.blocks?.[blockIndex]?.image
-    const newPath = assignAssetPath(file, previousPath)
+    const previousName = formData.steps[stepIndex]?.blocks?.[blockIndex]?.image
+    const newName = assignAssetName(file, previousName)
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
       if (!newData.steps[stepIndex].blocks) {
@@ -545,7 +689,7 @@ export default function MissionGeneratorPage() {
       if (!newData.steps[stepIndex].blocks[blockIndex]) {
         newData.steps[stepIndex].blocks[blockIndex] = createEmptyBlock()
       }
-      newData.steps[stepIndex].blocks[blockIndex].image = newPath
+      newData.steps[stepIndex].blocks[blockIndex].image = newName
       return newData
     })
   }
@@ -553,7 +697,7 @@ export default function MissionGeneratorPage() {
   const handleBlockImageRemove = (stepIndex: number, blockIndex: number) => {
     const currentPath = formData.steps[stepIndex]?.blocks?.[blockIndex]?.image
     if (!currentPath) return
-    removeAssetPath(currentPath)
+    removeAssetName(currentPath)
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
       if (
@@ -570,7 +714,7 @@ export default function MissionGeneratorPage() {
   const handleRemoveBlock = (stepIndex: number, blockIndex: number) => {
     const block = formData.steps[stepIndex]?.blocks?.[blockIndex]
     if (block?.image) {
-      removeAssetPath(block.image)
+      removeAssetName(block.image)
     }
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
@@ -582,15 +726,15 @@ export default function MissionGeneratorPage() {
   }
 
   const handleResourceImageSelection = (resourceIndex: number, file: File) => {
-    const previousPath = formData.resources[resourceIndex]?.path
-    const newPath = assignAssetPath(file, previousPath)
+    const previousName = formData.resources[resourceIndex]?.path
+    const newName = assignAssetName(file, previousName)
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
       if (!newData.resources[resourceIndex]) {
-        newData.resources[resourceIndex] = { type: 'image', path: newPath }
+        newData.resources[resourceIndex] = { type: 'image', path: newName }
       } else {
         newData.resources[resourceIndex].type = 'image'
-        newData.resources[resourceIndex].path = newPath
+        newData.resources[resourceIndex].path = newName
       }
       return newData
     })
@@ -599,7 +743,7 @@ export default function MissionGeneratorPage() {
   const handleResourceImageRemove = (resourceIndex: number) => {
     const currentPath = formData.resources[resourceIndex]?.path
     if (!currentPath) return
-    removeAssetPath(currentPath)
+    removeAssetName(currentPath)
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
       if (newData.resources[resourceIndex]) {
@@ -609,10 +753,162 @@ export default function MissionGeneratorPage() {
     })
   }
 
+  const determineMissionUid = (data: FormDataState) => {
+    const candidate =
+      customMissionUid.trim() ||
+      data.mission_reference_code?.toString().trim() ||
+      (data as any).mission_uid?.toString().trim() ||
+      data.title?.toString().trim() ||
+      ''
+    return sanitizeMissionUid(candidate)
+  }
+
+  const loadMissionFromSupabase = async () => {
+    const uid = loadMissionUid.trim()
+    if (!uid) {
+      setLoadMissionError('Enter a mission UID or JSON file name (e.g., 14.json).')
+      return
+    }
+
+    const isJsonFile = uid.toLowerCase().endsWith('.json')
+
+    setLoadingMission(true)
+    setLoadMissionError('')
+
+    try {
+      if (isJsonFile) {
+        const response = await fetch(
+          `/api/missions/storage-json/${encodeURIComponent(uid)}`
+        )
+        const result = await response.json()
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to load mission JSON')
+        }
+
+        const missionJson = result.mission
+        const normalized = normalizeFormData(missionJson || {})
+        const stripped = stripAssetPrefixes(normalized)
+        setFormData(stripped)
+        setJsonOutput(JSON.stringify(stripped, null, 2))
+
+        setCustomMissionUid(
+          missionJson?.mission_uid?.toString?.().trim() || ''
+        )
+        setCustomImageFolder('')
+        setCustomOrderNo('')
+        setEditingMissionUid(null)
+        setEditingMode('storage')
+        setEditingStorageFile(result.file || uid)
+      } else {
+        const response = await fetch(`/api/missions/${encodeURIComponent(uid)}`)
+        const result = await response.json()
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to load mission')
+        }
+
+        const mission = result.mission
+        const normalized = normalizeFormData(mission?.mission_data || {})
+        const stripped = stripAssetPrefixes(normalized)
+        setFormData(stripped)
+        setJsonOutput(JSON.stringify(stripped, null, 2))
+
+        const missionUid = mission?.mission_uid || uid
+        setCustomMissionUid(missionUid)
+        setCustomImageFolder(mission?.assets_prefix || '')
+        setCustomOrderNo(
+          mission?.order_no !== undefined && mission?.order_no !== null
+            ? String(mission.order_no)
+            : ''
+        )
+        setEditingMissionUid(missionUid)
+        setEditingMode('table')
+        setEditingStorageFile(null)
+      }
+
+      setUploadErrorMessage('')
+      setUploadSuccessMessage('')
+      setImageUploadError('')
+      setImageUploadSuccess('')
+      setAssetFiles({})
+      setAssetPreviews({})
+    } catch (error: any) {
+      setLoadMissionError(error?.message || 'Unable to load mission.')
+    } finally {
+      setLoadingMission(false)
+    }
+  }
+
+  const handleStandaloneImageUpload = async () => {
+    setImageUploadError('')
+    setImageUploadSuccess('')
+
+    const missionUid = determineMissionUid(formData)
+    if (!missionUid) {
+      setImageUploadError('Provide a mission UID or reference code before uploading images.')
+      return
+    }
+
+    const pendingEntries = Object.entries(assetFiles)
+    if (pendingEntries.length === 0) {
+      setImageUploadError('No pending images to upload.')
+      return
+    }
+
+    setUploadingImages(true)
+
+    try {
+      const payload = new FormData()
+      payload.append('mission_uid', missionUid)
+      if (customImageFolder.trim()) {
+        payload.append('image_folder', customImageFolder.trim())
+      }
+
+      pendingEntries.forEach(([path, file]) => {
+        const filename = path.split('/').pop() || sanitizeFileName(file.name)
+        const renamedFile = new File([file], filename, {
+          type: file.type || 'application/octet-stream',
+          lastModified: file.lastModified
+        })
+        payload.append('images', renamedFile)
+        payload.append('paths[]', path)
+      })
+
+      const response = await fetch('/api/missions/upload-images', {
+        method: 'POST',
+        body: payload
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || result.message || 'Failed to upload images')
+      }
+
+      const uploadedMap: Record<string, string> = result.uploadedImages || {}
+
+      setAssetFiles({})
+      setAssetPreviews({})
+
+      setImageUploadSuccess(
+        result.message ||
+          `Uploaded ${Object.keys(uploadedMap).length} image${
+            Object.keys(uploadedMap).length === 1 ? '' : 's'
+          } to Supabase storage.`
+      )
+
+      handleResetForm()
+      setShowMissionPrompt(null)
+    } catch (error: any) {
+      setImageUploadError(error?.message || 'Failed to upload images to Supabase.')
+    } finally {
+      setUploadingImages(false)
+    }
+  }
+
   const handleRemoveResource = (resourceIndex: number) => {
     const resource = formData.resources[resourceIndex]
     if (resource?.type === 'image' && resource.path) {
-      removeAssetPath(resource.path)
+      removeAssetName(resource.path)
     }
     setFormData((prev) => {
       const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
@@ -625,11 +921,11 @@ export default function MissionGeneratorPage() {
     const step = formData.steps[stepIndex]
     if (!step) return
     if (step.image) {
-      removeAssetPath(step.image)
+      removeAssetName(step.image)
     }
     step.blocks?.forEach((block: any) => {
       if (block?.image) {
-        removeAssetPath(block.image)
+        removeAssetName(block.image)
       }
     })
     setFormData((prev) => {
@@ -669,7 +965,118 @@ export default function MissionGeneratorPage() {
     URL.revokeObjectURL(url)
   }
 
+  const uploadToSupabase = async () => {
+    setUploadErrorMessage('')
+    setUploadSuccessMessage('')
+    setUploadingToSupabase(true)
+
+    try {
+      const missionJson = JSON.stringify(formData, null, 2)
+      setJsonOutput(missionJson)
+
+      const jsonBlob = new Blob([missionJson], { type: 'application/json' })
+      const jsonFile = new File([jsonBlob], 'mission.json', { type: 'application/json' })
+
+      const missionUid = determineMissionUid(formData)
+      if (editingMode === 'storage' && editingStorageFile) {
+        const response = await fetch(
+          `/api/missions/storage-json/${encodeURIComponent(editingStorageFile)}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mission_data: formData })
+          }
+        )
+
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result.error || result.message || 'Failed to update mission JSON.')
+        }
+
+        setUploadSuccessMessage(
+          result.message || `Mission JSON '${editingStorageFile}' updated successfully.`
+        )
+      } else {
+        const payload = new FormData()
+        payload.append('json', jsonFile)
+
+        const title = formData.title?.trim()
+        if (title) {
+          payload.append('title', title)
+        }
+
+        if (missionUid) {
+          payload.append('mission_uid', missionUid)
+        }
+        if (customOrderNo.trim()) {
+          payload.append('order_no', customOrderNo.trim())
+        }
+        if (customImageFolder.trim()) {
+          payload.append('image_folder', customImageFolder.trim())
+        }
+
+        Object.entries(assetFiles).forEach(([path, file]) => {
+          const filename = path.split('/').pop() || sanitizeFileName(file.name)
+          const renamedFile = new File([file], filename, {
+            type: file.type || 'application/octet-stream',
+            lastModified: file.lastModified
+          })
+          payload.append('images', renamedFile)
+        })
+
+        if (editingMode === 'table' && editingMissionUid) {
+          const response = await fetch(`/api/missions/${encodeURIComponent(missionUid)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mission_data: formData,
+              title: formData.title,
+              description: formData.description,
+              order_no: customOrderNo ? Number(customOrderNo) : undefined,
+              assets_prefix: customImageFolder || null
+            })
+          })
+
+          const result = await response.json()
+
+          if (!response.ok) {
+            throw new Error(result.error || result.message || 'Failed to update mission.')
+          }
+
+          setUploadSuccessMessage(result.message || 'Mission updated successfully!')
+        } else {
+          const response = await fetch('/api/missions/upload', {
+            method: 'POST',
+            body: payload
+          })
+
+          const result = await response.json()
+
+          if (!response.ok) {
+            throw new Error(result.error || result.message || 'Failed to upload mission.')
+          }
+
+          setUploadSuccessMessage(
+            result.message ||
+              `Mission uploaded successfully!${
+                result.images?.length ? ` ${result.images.length} images uploaded.` : ''
+              }`
+          )
+        }
+      }
+
+      handleResetForm()
+      setShowMissionPrompt(null)
+    } catch (error: any) {
+      setUploadErrorMessage(error?.message || 'Failed to upload mission to Supabase.')
+    } finally {
+      setUploadingToSupabase(false)
+    }
+  }
+
   return (
+    <>
       <div className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -694,6 +1101,52 @@ export default function MissionGeneratorPage() {
           </div>
 
           <div className="space-y-4">
+                <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-4">
+                  <h3 className="text-sm font-semibold text-gray-900">Load Existing Mission</h3>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Enter a mission UID (e.g., M10) or a JSON file name (e.g., 14.json) to load data for editing.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      value={loadMissionUid}
+                      onChange={(e) => setLoadMissionUid(e.target.value)}
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+                      placeholder="e.g., M10"
+                    />
+                    <button
+                      onClick={loadMissionFromSupabase}
+                      disabled={loadingMission}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loadingMission && (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      )}
+                      Load Mission
+                    </button>
+                    {editingMissionUid && (
+                      <button
+                        onClick={handleResetForm}
+                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {loadMissionError && (
+                    <p className="mt-2 text-xs text-red-600">{loadMissionError}</p>
+                  )}
+                  {editingMode === 'table' && editingMissionUid && !loadMissionError && (
+                    <p className="mt-2 text-xs text-green-600">
+                      Editing mission <strong>{editingMissionUid}</strong>
+                    </p>
+                  )}
+                  {editingMode === 'storage' && editingStorageFile && !loadMissionError && (
+                    <p className="mt-2 text-xs text-green-600">
+                      Editing storage file <strong>{editingStorageFile}</strong>
+                    </p>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Version</label>
@@ -724,6 +1177,54 @@ export default function MissionGeneratorPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     placeholder="e.g., Keyboard Pilot"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Mission UID (for uploads)
+                    </label>
+                    <input
+                      type="text"
+                      value={customMissionUid}
+                      onChange={(e) => setCustomMissionUid(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="e.g., M10 or TEST-001"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Used when uploading images/JSON. Defaults to mission reference code or title.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Image Folder (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={customImageFolder}
+                      onChange={(e) => setCustomImageFolder(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="e.g., M10/custom-images"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Leave empty to store images in <code>MUID/images</code>. Avoid spaces or special characters.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Order Number (optional)
+                    </label>
+                    <input
+                      type="number"
+                      value={customOrderNo}
+                      onChange={(e) => setCustomOrderNo(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="e.g., 10"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      If provided, uses this order_no instead of auto-increment.
+                    </p>
+                  </div>
                 </div>
 
             <div>
@@ -1322,7 +1823,7 @@ export default function MissionGeneratorPage() {
                               newData.resources[idx].type === 'image' &&
                               newData.resources[idx].path
                             ) {
-                              removeAssetPath(newData.resources[idx].path)
+                              removeAssetName(newData.resources[idx].path)
                               newData.resources[idx].path = ''
                             }
                             newData.resources[idx].type = nextType
@@ -1378,12 +1879,48 @@ export default function MissionGeneratorPage() {
               </div>
             </div>
 
-            <button
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
                 onClick={generateJSON}
-                className="w-full mt-6 px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700"
               >
                 Generate JSON
-            </button>
+              </button>
+              <button
+                onClick={() => setShowMissionPrompt('images')}
+                disabled={uploadingImages || Object.keys(assetFiles).length === 0}
+                className="w-full px-6 py-3 bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+              >
+                {uploadingImages ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Uploading images...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-5 w-5" />
+                    Upload Images to Storage
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowMissionPrompt('json')}
+                disabled={uploadingToSupabase}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {uploadingToSupabase ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-5 w-5" />
+                    Upload to Supabase
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1415,32 +1952,32 @@ export default function MissionGeneratorPage() {
               <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
                 <p className="font-semibold mb-1">Assets</p>
                 <ul className="space-y-1">
-                  {Object.keys(assetFiles).map((assetPath) => (
-                    <li key={assetPath} className="flex justify-between gap-2">
-                      <span>{assetPath}</span>
+                  {Object.keys(assetFiles).map((assetName) => (
+                    <li key={assetName} className="flex justify-between gap-2">
+                      <span>{assetName}</span>
                       <button
                         type="button"
                         onClick={() => {
-                          removeAssetPath(assetPath)
+                          removeAssetName(assetName)
                           setFormData((prev) => {
                             const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
-                            if (newData.missionPageImage === assetPath) {
+                            if (newData.missionPageImage === assetName) {
                               newData.missionPageImage = ''
                             }
-                            if (newData.intro.image === assetPath) {
+                            if (newData.intro.image === assetName) {
                               newData.intro.image = ''
                             }
                             newData.steps = newData.steps.map((step) => ({
                               ...step,
-                              image: step.image === assetPath ? '' : step.image,
+                              image: step.image === assetName ? '' : step.image,
                               blocks: step.blocks?.map((block: any) => ({
                                 ...block,
-                                image: block.image === assetPath ? '' : block.image
+                                image: block.image === assetName ? '' : block.image
                               })) || []
                             }))
                             newData.resources = newData.resources.map((resource) => ({
                               ...resource,
-                              path: resource.path === assetPath ? '' : resource.path
+                              path: resource.path === assetName ? '' : resource.path
                             }))
                             return newData
                           })
@@ -1454,12 +1991,71 @@ export default function MissionGeneratorPage() {
                 </ul>
               </div>
             )}
+            {imageUploadError && (
+              <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {imageUploadError}
+              </div>
+            )}
+            {imageUploadSuccess && (
+              <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                {imageUploadSuccess}
+              </div>
+            )}
+            {uploadErrorMessage && (
+              <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {uploadErrorMessage}
+              </div>
+            )}
+            {uploadSuccessMessage && (
+              <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 whitespace-pre-wrap">
+                {uploadSuccessMessage}
+              </div>
+            )}
             <pre className="bg-gray-50 border rounded-md p-4 overflow-auto max-h-[calc(100vh-200px)] text-sm">
               {jsonOutput || 'Generated JSON will appear here...'}
             </pre>
           </div>
         </div>
       </div>
+      {showMissionPrompt && (
+        <UploadPrompt
+          title={showMissionPrompt === 'json' ? 'Upload Mission to Supabase' : 'Upload Images to Storage'}
+          description={
+            showMissionPrompt === 'json'
+              ? 'Set the mission UID and optional image folder before uploading to Supabase.'
+              : 'Set the mission UID and optional image folder before uploading images to storage.'
+          }
+          fields={[
+            {
+              label: 'Mission UID',
+              value: customMissionUid,
+              onChange: setCustomMissionUid,
+              placeholder: 'e.g., M10 or TEST-MISSION',
+              helper: 'Required. Avoid spaces or special characters.'
+            },
+            {
+              label: 'Image Folder (optional)',
+              value: customImageFolder,
+              onChange: setCustomImageFolder,
+              placeholder: 'e.g., M10/custom',
+              helper: 'Defaults to MUID/images when left blank.'
+            }
+          ]}
+          confirmLabel={showMissionPrompt === 'json' ? 'Upload Mission' : 'Upload Images'}
+          loading={showMissionPrompt === 'json' ? uploadingToSupabase : uploadingImages}
+          onCancel={() => setShowMissionPrompt(null)}
+          onConfirm={() => {
+            if (showMissionPrompt === 'json') {
+              setShowMissionPrompt(null)
+              uploadToSupabase()
+            } else {
+              setShowMissionPrompt(null)
+              handleStandaloneImageUpload()
+            }
+          }}
+        />
+      )}
+    </>
   )
 }
 
