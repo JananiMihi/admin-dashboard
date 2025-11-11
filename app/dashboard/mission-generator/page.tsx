@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Wand2, Download, Plus, Trash2 } from 'lucide-react'
 
 const STORAGE_KEY = 'mission-generator-form'
@@ -34,30 +34,160 @@ const createEmptyStep = () => ({
 })
 
 const createDefaultFormData = () => ({
-  version: 1,
-  layout: 'BlocklySplitLayout',
-  title: '',
-  description: '',
-  mission_time: '',
-  Difficulty: 1,
-  missionPageImage: '',
-  intro: {
-    image: '',
-    timeAllocated: '',
-    description: ''
-  },
-  learn_before_you_code: [{ topic: '', explanation: '' }],
-  requirements: [''],
-  blocks_used: [''],
+    version: 1,
+    layout: 'BlocklySplitLayout',
+    title: '',
+    description: '',
+    mission_time: '',
+    Difficulty: 1,
+    missionPageImage: '',
+    intro: {
+      image: '',
+      timeAllocated: '',
+      description: ''
+    },
+    learn_before_you_code: [{ topic: '', explanation: '' }],
+    requirements: [''],
+    blocks_used: [''],
   steps: [createEmptyStep()],
-  mission_reference_code: '',
-  report_card: [{ task: '', points: 0 }],
-  total_points: 0,
-  learning_outcomes: [''],
-  resources: [{ type: 'image', path: '' }]
-})
+    mission_reference_code: '',
+    report_card: [{ task: '', points: 0 }],
+    total_points: 0,
+    learning_outcomes: [''],
+    resources: [{ type: 'image', path: '' }]
+  })
 
 type FormDataState = ReturnType<typeof createDefaultFormData>
+
+const sanitizeFileName = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '')
+    || 'asset'
+
+interface ImageDropZoneProps {
+  title: string
+  path: string
+  previewUrl?: string
+  file?: File
+  onSelect: (file: File) => void
+  onRemove?: () => void
+}
+
+function ImageDropZone({ title, path, previewUrl, file, onSelect, onRemove }: ImageDropZoneProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [resolvedPreview, setResolvedPreview] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (previewUrl) {
+      setResolvedPreview(previewUrl)
+      return
+    }
+
+    if (file) {
+      const url = URL.createObjectURL(file)
+      setResolvedPreview(url)
+      return () => URL.revokeObjectURL(url)
+    }
+
+    if (
+      typeof path === 'string' &&
+      (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:'))
+    ) {
+      setResolvedPreview(path)
+    } else {
+      setResolvedPreview(null)
+    }
+
+    return undefined
+  }, [previewUrl, file, path])
+
+  const openFilePicker = () => {
+    inputRef.current?.click()
+  }
+
+  const handleFileSelection = (file?: File | null) => {
+    if (file) {
+      onSelect(file)
+    }
+  }
+
+  return (
+    <div
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        const file = event.dataTransfer.files?.[0]
+        handleFileSelection(file)
+      }}
+      className="w-full rounded-md border-2 border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-center text-sm text-gray-600 transition hover:border-blue-400 hover:bg-blue-50"
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          handleFileSelection(file)
+          if (event.target) {
+            event.target.value = ''
+          }
+        }}
+      />
+
+      {path ? (
+        <div className="space-y-2">
+          {resolvedPreview ? (
+            <img
+              src={resolvedPreview}
+              alt={title}
+              className="mx-auto max-h-32 rounded border object-contain"
+            />
+          ) : (
+            <p className="text-xs text-gray-500">Preview unavailable</p>
+          )}
+          <p className="font-medium text-gray-800 break-all">{path}</p>
+          <div className="flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={openFilePicker}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Change image
+            </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-100"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="font-medium text-gray-800">{title}</p>
+          <p>Drag & drop an image here, or click to browse</p>
+          <button
+            type="button"
+            onClick={openFilePicker}
+            className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            Browse files
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const normalizeFormData = (raw: any): FormDataState => {
   const defaults = createDefaultFormData()
@@ -172,6 +302,78 @@ export default function MissionGeneratorPage() {
     }
   }, [formData])
 
+  const [assetFiles, setAssetFiles] = useState<Record<string, File>>({})
+  const [assetPreviews, setAssetPreviews] = useState<Record<string, string>>({})
+
+  const assignAssetPath = (file: File, previousPath?: string) => {
+    if (!file) return previousPath || ''
+
+    const sanitizedName = sanitizeFileName(file.name)
+    const lastDot = sanitizedName.lastIndexOf('.')
+    const baseName = lastDot !== -1 ? sanitizedName.slice(0, lastDot) : sanitizedName
+    const extension = lastDot !== -1 ? sanitizedName.slice(lastDot) : ''
+
+    let assignedPath = previousPath || ''
+    setAssetFiles((prev) => {
+      const nextEntries = previousPath
+        ? Object.entries(prev).filter(([path]) => path !== previousPath)
+        : Object.entries(prev)
+      const next: Record<string, File> = Object.fromEntries(nextEntries)
+
+      let candidate = `assets/${sanitizedName}`
+      let counter = 1
+      while (Object.prototype.hasOwnProperty.call(next, candidate)) {
+        candidate = `assets/${baseName}-${counter}${extension}`
+        counter += 1
+      }
+
+      const blobUrl = URL.createObjectURL(file)
+
+      if (previousPath) {
+        setAssetPreviews((prev) => {
+          if (prev[previousPath]) {
+            URL.revokeObjectURL(prev[previousPath])
+          }
+          const updated = { ...prev }
+          delete updated[previousPath]
+          return updated
+        })
+      }
+
+      setAssetPreviews((prev) => ({
+        ...prev,
+        [candidate]: blobUrl
+      }))
+
+      next[candidate] = file
+      assignedPath = candidate
+      return next
+    })
+
+    return assignedPath
+  }
+
+  const removeAssetPath = (path?: string) => {
+    if (!path) return
+    setAssetFiles((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, path)) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[path]
+      return next
+    })
+    setAssetPreviews((prev) => {
+      if (!prev[path]) {
+        return prev
+      }
+      URL.revokeObjectURL(prev[path])
+      const next = { ...prev }
+      delete next[path]
+      return next
+    })
+  }
+
   const generateJSON = () => {
     const json = JSON.stringify(formData, null, 2)
     setJsonOutput(json)
@@ -264,14 +466,215 @@ export default function MissionGeneratorPage() {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY)
     }
+    setAssetFiles({})
+  }
+
+  const handleStepImageSelection = (stepIndex: number, file: File) => {
+    const newPath = assignAssetPath(file, formData.steps[stepIndex]?.image)
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (newData.steps[stepIndex]) {
+        newData.steps[stepIndex].image = newPath
+      }
+      return newData
+    })
+  }
+
+  const handleRemoveStepImage = (stepIndex: number) => {
+    const currentPath = formData.steps[stepIndex]?.image
+    if (currentPath) {
+      removeAssetPath(currentPath)
+      setFormData((prev) => {
+        const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+        if (newData.steps[stepIndex]) {
+          newData.steps[stepIndex].image = ''
+        }
+        return newData
+      })
+    }
+  }
+
+  const handleMissionImageSelection = (file: File) => {
+    const newPath = assignAssetPath(file, formData.missionPageImage)
+    setFormData((prev) => ({
+      ...prev,
+      missionPageImage: newPath
+    }))
+  }
+
+  const handleMissionImageRemove = () => {
+    if (!formData.missionPageImage) return
+    removeAssetPath(formData.missionPageImage)
+    setFormData((prev) => ({
+      ...prev,
+      missionPageImage: ''
+    }))
+  }
+
+  const handleIntroImageSelection = (file: File) => {
+    const newPath = assignAssetPath(file, formData.intro.image)
+    setFormData((prev) => ({
+      ...prev,
+      intro: {
+        ...prev.intro,
+        image: newPath
+      }
+    }))
+  }
+
+  const handleIntroImageRemove = () => {
+    if (!formData.intro.image) return
+    removeAssetPath(formData.intro.image)
+    setFormData((prev) => ({
+      ...prev,
+      intro: {
+        ...prev.intro,
+        image: ''
+      }
+    }))
+  }
+
+  const handleBlockImageSelection = (stepIndex: number, blockIndex: number, file: File) => {
+    const previousPath = formData.steps[stepIndex]?.blocks?.[blockIndex]?.image
+    const newPath = assignAssetPath(file, previousPath)
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (!newData.steps[stepIndex].blocks) {
+        newData.steps[stepIndex].blocks = []
+      }
+      if (!newData.steps[stepIndex].blocks[blockIndex]) {
+        newData.steps[stepIndex].blocks[blockIndex] = createEmptyBlock()
+      }
+      newData.steps[stepIndex].blocks[blockIndex].image = newPath
+      return newData
+    })
+  }
+
+  const handleBlockImageRemove = (stepIndex: number, blockIndex: number) => {
+    const currentPath = formData.steps[stepIndex]?.blocks?.[blockIndex]?.image
+    if (!currentPath) return
+    removeAssetPath(currentPath)
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (
+        newData.steps[stepIndex] &&
+        newData.steps[stepIndex].blocks &&
+        newData.steps[stepIndex].blocks[blockIndex]
+      ) {
+        newData.steps[stepIndex].blocks[blockIndex].image = ''
+      }
+      return newData
+    })
+  }
+
+  const handleRemoveBlock = (stepIndex: number, blockIndex: number) => {
+    const block = formData.steps[stepIndex]?.blocks?.[blockIndex]
+    if (block?.image) {
+      removeAssetPath(block.image)
+    }
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (newData.steps[stepIndex]?.blocks) {
+        newData.steps[stepIndex].blocks.splice(blockIndex, 1)
+      }
+      return newData
+    })
+  }
+
+  const handleResourceImageSelection = (resourceIndex: number, file: File) => {
+    const previousPath = formData.resources[resourceIndex]?.path
+    const newPath = assignAssetPath(file, previousPath)
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (!newData.resources[resourceIndex]) {
+        newData.resources[resourceIndex] = { type: 'image', path: newPath }
+      } else {
+        newData.resources[resourceIndex].type = 'image'
+        newData.resources[resourceIndex].path = newPath
+      }
+      return newData
+    })
+  }
+
+  const handleResourceImageRemove = (resourceIndex: number) => {
+    const currentPath = formData.resources[resourceIndex]?.path
+    if (!currentPath) return
+    removeAssetPath(currentPath)
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      if (newData.resources[resourceIndex]) {
+        newData.resources[resourceIndex].path = ''
+      }
+      return newData
+    })
+  }
+
+  const handleRemoveResource = (resourceIndex: number) => {
+    const resource = formData.resources[resourceIndex]
+    if (resource?.type === 'image' && resource.path) {
+      removeAssetPath(resource.path)
+    }
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      newData.resources.splice(resourceIndex, 1)
+      return newData
+    })
+  }
+
+  const handleRemoveStep = (stepIndex: number) => {
+    const step = formData.steps[stepIndex]
+    if (!step) return
+    if (step.image) {
+      removeAssetPath(step.image)
+    }
+    step.blocks?.forEach((block: any) => {
+      if (block?.image) {
+        removeAssetPath(block.image)
+      }
+    })
+    setFormData((prev) => {
+      const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+      newData.steps.splice(stepIndex, 1)
+      return newData
+    })
+  }
+
+  const handleDownloadPackage = async () => {
+    // Dynamically import jszip using require to avoid type errors at build time
+    let JSZip
+    try {
+      // @ts-ignore
+      JSZip = (await import('jszip')).default
+    } catch (e) {
+      // Fallback if import fails (for SSR, e.g.)
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      JSZip = require('jszip')
+    }
+    const zip = new JSZip()
+
+    const jsonFileName = `${sanitizeFileName(formData.title || 'mission') || 'mission'}.json`
+    const jsonContent = jsonOutput || JSON.stringify(formData, null, 2)
+    zip.file(jsonFileName, jsonContent)
+
+    Object.entries(assetFiles).forEach(([path, file]) => {
+      zip.file(path, file)
+    })
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${sanitizeFileName(formData.title || 'mission') || 'mission'}-package.zip`
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
       <div className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Mission Generator</h1>
-            <p className="mt-1 text-sm text-gray-500">Create mission JSON files following Instructables format</p>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Mission Generator</h1>
+          <p className="mt-1 text-sm text-gray-500">Create mission JSON files following Instructables format</p>
           </div>
           <button
             onClick={handleResetForm}
@@ -359,12 +762,15 @@ export default function MissionGeneratorPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Mission Page Image</label>
-                  <input
-                    type="text"
-                    value={formData.missionPageImage}
-                    onChange={(e) => updateField('missionPageImage', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    placeholder="missions_page_image.png"
+                  <ImageDropZone
+                    title="Mission page image"
+                    path={formData.missionPageImage}
+                    previewUrl={
+                      formData.missionPageImage ? assetPreviews[formData.missionPageImage] : undefined
+                    }
+                    file={formData.missionPageImage ? assetFiles[formData.missionPageImage] : undefined}
+                    onSelect={handleMissionImageSelection}
+                    onRemove={formData.missionPageImage ? handleMissionImageRemove : undefined}
                   />
                 </div>
 
@@ -372,12 +778,15 @@ export default function MissionGeneratorPage() {
                 <div className="border-t pt-4">
                   <h3 className="font-semibold text-gray-900 mb-3">Intro</h3>
                   <div className="space-y-3">
-                    <input
-                      type="text"
-                      value={formData.intro.image}
-                      onChange={(e) => updateField('intro.image', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="Intro image"
+                    <ImageDropZone
+                      title="Intro image"
+                      path={formData.intro.image}
+                      previewUrl={
+                        formData.intro.image ? assetPreviews[formData.intro.image] : undefined
+                      }
+                      file={formData.intro.image ? assetFiles[formData.intro.image] : undefined}
+                      onSelect={handleIntroImageSelection}
+                      onRemove={formData.intro.image ? handleIntroImageRemove : undefined}
                     />
                     <input
                       type="text"
@@ -519,7 +928,7 @@ export default function MissionGeneratorPage() {
                       <div className="flex justify-between items-center mb-3">
                         <span className="font-medium">Step {idx + 1}</span>
                         <button
-                          onClick={() => removeArrayItem('steps', idx)}
+                          onClick={() => handleRemoveStep(idx)}
                           className="text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -554,12 +963,13 @@ export default function MissionGeneratorPage() {
                           className="w-full px-3 py-2 border border-gray-300 rounded-md"
                           placeholder="Note"
                         />
-                        <input
-                          type="text"
-                          value={step.image}
-                          onChange={(e) => updateArrayItem('steps', idx, 'image', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                          placeholder="Step image"
+                        <ImageDropZone
+                          title={`Step ${idx + 1} image`}
+                          path={step.image}
+                          previewUrl={step.image ? assetPreviews[step.image] : undefined}
+                          file={step.image ? assetFiles[step.image] : undefined}
+                          onSelect={(file) => handleStepImageSelection(idx, file)}
+                          onRemove={step.image ? () => handleRemoveStepImage(idx) : undefined}
                         />
                         <textarea
                           value={step.hint}
@@ -598,26 +1008,25 @@ export default function MissionGeneratorPage() {
                               <div className="flex justify-between items-center mb-2">
                                 <span className="text-xs text-gray-600">Block {blockIdx + 1}</span>
                                 <button
-                                  onClick={() => {
-                                    const newData = JSON.parse(JSON.stringify(formData))
-                                    newData.steps[idx].blocks.splice(blockIdx, 1)
-                                    setFormData(newData)
-                                  }}
+                                  onClick={() => handleRemoveBlock(idx, blockIdx)}
                                   className="text-red-600 text-xs"
                                 >
                                   Remove
                                 </button>
                               </div>
-                              <input
-                                type="text"
-                                value={block.image || ''}
-                                onChange={(e) => {
-                                  const newData = JSON.parse(JSON.stringify(formData))
-                                  newData.steps[idx].blocks[blockIdx].image = e.target.value
-                                  setFormData(newData)
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
-                                placeholder="Image filename"
+                              <ImageDropZone
+                                title={`Block ${blockIdx + 1} image`}
+                                path={block.image || ''}
+                                previewUrl={
+                                  block.image ? assetPreviews[block.image] : undefined
+                                }
+                                file={block.image ? assetFiles[block.image] : undefined}
+                                onSelect={(file) => handleBlockImageSelection(idx, blockIdx, file)}
+                                onRemove={
+                                  block.image
+                                    ? () => handleBlockImageRemove(idx, blockIdx)
+                                    : undefined
+                                }
                               />
                               <input
                                 type="text"
@@ -646,9 +1055,9 @@ export default function MissionGeneratorPage() {
                           <button
                             onClick={() => {
                               const newData = JSON.parse(JSON.stringify(formData))
-                          if (!newData.steps[idx].blocks) {
-                            newData.steps[idx].blocks = []
-                          }
+                              if (!newData.steps[idx].blocks) {
+                                newData.steps[idx].blocks = []
+                              }
                           newData.steps[idx].blocks.push(createEmptyBlock())
                               setFormData(newData)
                             }}
@@ -896,11 +1305,7 @@ export default function MissionGeneratorPage() {
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs text-gray-600">Resource {idx + 1}</span>
                         <button
-                          onClick={() => {
-                            const newData = JSON.parse(JSON.stringify(formData))
-                            newData.resources.splice(idx, 1)
-                            setFormData(newData)
-                          }}
+                        onClick={() => handleRemoveResource(idx)}
                           className="text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -909,9 +1314,20 @@ export default function MissionGeneratorPage() {
                       <select
                         value={resource.type}
                         onChange={(e) => {
-                          const newData = JSON.parse(JSON.stringify(formData))
-                          newData.resources[idx].type = e.target.value
-                          setFormData(newData)
+                          const nextType = e.target.value
+                          setFormData((prev) => {
+                            const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+                            if (
+                              nextType !== 'image' &&
+                              newData.resources[idx].type === 'image' &&
+                              newData.resources[idx].path
+                            ) {
+                              removeAssetPath(newData.resources[idx].path)
+                              newData.resources[idx].path = ''
+                            }
+                            newData.resources[idx].type = nextType
+                            return newData
+                          })
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
                       >
@@ -920,6 +1336,20 @@ export default function MissionGeneratorPage() {
                         <option value="file">File</option>
                         <option value="link">Link</option>
                 </select>
+                      {resource.type === 'image' ? (
+                        <ImageDropZone
+                          title={`Resource ${idx + 1} image`}
+                          path={resource.path}
+                          previewUrl={
+                            resource.path ? assetPreviews[resource.path] : undefined
+                          }
+                          file={resource.path ? assetFiles[resource.path] : undefined}
+                          onSelect={(file) => handleResourceImageSelection(idx, file)}
+                          onRemove={
+                            resource.path ? () => handleResourceImageRemove(idx) : undefined
+                          }
+                        />
+                      ) : (
                       <input
                         type="text"
                         value={resource.path}
@@ -931,6 +1361,7 @@ export default function MissionGeneratorPage() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                         placeholder="Resource path"
                       />
+                      )}
                     </div>
                   ))}
                   <button
@@ -961,15 +1392,68 @@ export default function MissionGeneratorPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Generated JSON</h2>
               {jsonOutput && (
+                <div className="flex gap-2">
                 <button
                   onClick={downloadJSON}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
                 >
                   <Download className="h-5 w-5" />
-                  Download
+                    Download JSON
                 </button>
+                  <button
+                    onClick={handleDownloadPackage}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    disabled={!jsonOutput && Object.keys(assetFiles).length === 0}
+                  >
+                    <Download className="h-5 w-5" />
+                    Download Package
+                  </button>
+                </div>
               )}
             </div>
+            {Object.keys(assetFiles).length > 0 && (
+              <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                <p className="font-semibold mb-1">Assets</p>
+                <ul className="space-y-1">
+                  {Object.keys(assetFiles).map((assetPath) => (
+                    <li key={assetPath} className="flex justify-between gap-2">
+                      <span>{assetPath}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          removeAssetPath(assetPath)
+                          setFormData((prev) => {
+                            const newData = JSON.parse(JSON.stringify(prev)) as FormDataState
+                            if (newData.missionPageImage === assetPath) {
+                              newData.missionPageImage = ''
+                            }
+                            if (newData.intro.image === assetPath) {
+                              newData.intro.image = ''
+                            }
+                            newData.steps = newData.steps.map((step) => ({
+                              ...step,
+                              image: step.image === assetPath ? '' : step.image,
+                              blocks: step.blocks?.map((block: any) => ({
+                                ...block,
+                                image: block.image === assetPath ? '' : block.image
+                              })) || []
+                            }))
+                            newData.resources = newData.resources.map((resource) => ({
+                              ...resource,
+                              path: resource.path === assetPath ? '' : resource.path
+                            }))
+                            return newData
+                          })
+                        }}
+                        className="text-blue-700 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <pre className="bg-gray-50 border rounded-md p-4 overflow-auto max-h-[calc(100vh-200px)] text-sm">
               {jsonOutput || 'Generated JSON will appear here...'}
             </pre>
