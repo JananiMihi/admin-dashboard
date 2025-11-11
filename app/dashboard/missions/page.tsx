@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Mission } from '@/lib/supabase'
-import { Upload, Target, Check, Star, Users, Image as ImageIcon, FileJson, X, RefreshCw, Trash2 } from 'lucide-react'
+import { Upload, Target, Check, Star, Users, Image as ImageIcon, FileJson, X, RefreshCw, Trash2, Cloud } from 'lucide-react'
 
 export default function MissionsPage() {
   const [missions, setMissions] = useState<Mission[]>([])
@@ -17,6 +17,9 @@ export default function MissionsPage() {
   const [imageFiles, setImageFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncSummary, setSyncSummary] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [customTitle, setCustomTitle] = useState('')
   const [customMissionUid, setCustomMissionUid] = useState('')
   const [customOrderNo, setCustomOrderNo] = useState('')
@@ -27,7 +30,30 @@ export default function MissionsPage() {
   }, [])
 
   const fetchMissions = async () => {
+    setSyncError(null)
+    setSyncSummary(null)
+
     try {
+      try {
+        const response = await fetch('/api/missions/sync-from-storage', { method: 'POST' })
+        const result = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          const message = result?.message || result?.error || 'Failed to sync missions from storage'
+          setSyncError(message)
+          if (result?.summary) {
+            setSyncSummary(JSON.stringify(result.summary, null, 2))
+          }
+        } else if (result) {
+          setSyncSummary(JSON.stringify(result.summary ?? result, null, 2))
+        }
+      } catch (syncError) {
+        console.error('Error syncing missions from storage:', syncError)
+        const message =
+          (syncError instanceof Error && syncError.message) ||
+          'Unable to sync missions from storage.'
+        setSyncError(message)
+      }
       // Fetch missions - try to order by 'order' column, fallback to created_at
       let missionsQuery = supabaseAdmin
         .from('missions')
@@ -223,6 +249,39 @@ export default function MissionsPage() {
     }
   }
 
+  const handleSyncFromStorage = async () => {
+    setSyncing(true)
+    setUploadError('')
+    setUploadSuccess('')
+    setSyncError(null)
+    setSyncSummary(null)
+
+    try {
+      const response = await fetch('/api/missions/sync-from-storage', {
+        method: 'POST'
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        if (result?.summary) {
+          setSyncSummary(JSON.stringify(result.summary, null, 2))
+        }
+        setSyncError(result.error || result.message || 'Failed to sync missions from storage')
+        throw new Error(result.error || result.message || 'Failed to sync missions')
+      }
+
+      const summaryText = JSON.stringify(result.summary ?? result, null, 2)
+      setSyncSummary(summaryText)
+      setUploadSuccess(summaryText)
+      fetchMissions()
+    } catch (error: any) {
+      setUploadError(error.message || 'Failed to sync missions from storage')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const handleLegacyArrayUpload = async () => {
     setUploadError('')
     setUploadSuccess('')
@@ -303,6 +362,23 @@ export default function MissionsPage() {
                 </>
               )}
             </button>
+            <button
+              onClick={handleSyncFromStorage}
+              disabled={syncing}
+              className="flex items-center px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {syncing ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <Cloud className="h-5 w-5 mr-2" />
+                  Sync from Storage
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -319,7 +395,7 @@ export default function MissionsPage() {
 
             {uploadSuccess && (
               <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
-                {uploadSuccess}
+                <pre className="whitespace-pre-wrap text-xs leading-5">{uploadSuccess}</pre>
               </div>
             )}
 
@@ -484,6 +560,25 @@ export default function MissionsPage() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {(syncSummary || syncError) && (
+          <div
+            className={`rounded-lg border px-4 py-3 ${
+              syncError ? 'border-red-200 bg-red-50' : 'border-blue-200 bg-blue-50'
+            }`}
+          >
+            {syncError && (
+              <p className="text-sm text-red-700 font-medium mb-2">
+                {syncError}
+              </p>
+            )}
+            {syncSummary && (
+              <pre className="whitespace-pre-wrap text-xs leading-5 text-gray-900">
+{syncSummary}
+              </pre>
+            )}
           </div>
         )}
 

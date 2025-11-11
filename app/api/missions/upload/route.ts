@@ -128,6 +128,16 @@ export async function POST(request: NextRequest) {
     const jsonFileName = `${orderNo}.json`;
     const objectPath = jsonFileName;
 
+    const assetsBucket = 'missions-assets'
+    const buildAssetsPrefix = (uid: string) => {
+      const cleaned = uid?.trim()
+      if (!cleaned) return null
+      const upper = cleaned.toUpperCase()
+      const prefixBody = upper.startsWith('M') ? upper : `M${upper}`
+      return `${prefixBody}/`
+    }
+    const assetsPrefix = buildAssetsPrefix(missionUid)
+
     // Add optional fields if they exist in schema
     // Note: estimated_time and difficulty may not exist in all schemas
     if (xp_reward !== undefined) {
@@ -225,6 +235,12 @@ export async function POST(request: NextRequest) {
     if (unlocked !== undefined) {
       insertData.unlocked = unlocked
     }
+    insertData.assets_bucket = assetsBucket
+    if (assetsPrefix) {
+      insertData.assets_prefix = assetsPrefix
+    }
+    insertData.unlock_playground = true
+    insertData.unlocks_projects = true
     
     // Add required order_no field (NOT NULL constraint)
     // Use order from JSON, or get max order_no + 1 if not provided
@@ -319,6 +335,12 @@ export async function POST(request: NextRequest) {
       if (unlocked !== undefined) {
         safeInsertData.unlocked = unlocked
       }
+      safeInsertData.assets_bucket = assetsBucket
+      if (assetsPrefix) {
+        safeInsertData.assets_prefix = assetsPrefix
+      }
+      safeInsertData.unlock_playground = true
+      safeInsertData.unlocks_projects = true
       
       // Try with safe fields
       const result2 = await supabaseAdmin
@@ -392,6 +414,12 @@ export async function POST(request: NextRequest) {
           order_no: orderNo, // order_no is required (NOT NULL constraint)
           object_path: objectPath // object_path is required (NOT NULL constraint)
         }
+        minimalData.assets_bucket = assetsBucket
+        if (assetsPrefix) {
+          minimalData.assets_prefix = assetsPrefix
+        }
+        minimalData.unlock_playground = true
+        minimalData.unlocks_projects = true
         
         const result3 = await supabaseAdmin
           .from('missions')
