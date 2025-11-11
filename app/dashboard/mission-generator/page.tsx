@@ -79,6 +79,12 @@ const sanitizeMissionUid = (value: string) =>
     .replace(/^-+|-+$/g, '')
     .toUpperCase() || `MISSION-${Date.now()}`
 
+const notifyAdmin = (message: string) => {
+  if (typeof window !== 'undefined' && message) {
+    window.alert(message)
+  }
+}
+
 interface ImageDropZoneProps {
   title: string
   path: string
@@ -994,9 +1000,10 @@ export default function MissionGeneratorPage() {
           throw new Error(result.error || result.message || 'Failed to update mission JSON.')
         }
 
-        setUploadSuccessMessage(
+        const successMsg =
           result.message || `Mission JSON '${editingStorageFile}' updated successfully.`
-        )
+        setUploadSuccessMessage(successMsg)
+        notifyAdmin(successMsg)
       } else {
         const payload = new FormData()
         payload.append('json', jsonFile)
@@ -1044,7 +1051,9 @@ export default function MissionGeneratorPage() {
             throw new Error(result.error || result.message || 'Failed to update mission.')
           }
 
-          setUploadSuccessMessage(result.message || 'Mission updated successfully!')
+          const successMsg = result.message || 'Mission updated successfully!'
+          setUploadSuccessMessage(successMsg)
+          notifyAdmin(successMsg)
         } else {
           const response = await fetch('/api/missions/upload', {
             method: 'POST',
@@ -1057,12 +1066,13 @@ export default function MissionGeneratorPage() {
             throw new Error(result.error || result.message || 'Failed to upload mission.')
           }
 
-          setUploadSuccessMessage(
+          const successMsg =
             result.message ||
-              `Mission uploaded successfully!${
-                result.images?.length ? ` ${result.images.length} images uploaded.` : ''
-              }`
-          )
+            `Mission uploaded successfully!${
+              result.images?.length ? ` ${result.images.length} images uploaded.` : ''
+            }`
+          setUploadSuccessMessage(successMsg)
+          notifyAdmin(successMsg)
         }
       }
 
