@@ -408,6 +408,9 @@ export default function MissionGeneratorPage() {
   const [editingMissionUid, setEditingMissionUid] = useState<string | null>(null)
   const [editingMode, setEditingMode] = useState<'table' | 'storage' | null>(null)
   const [editingStorageFile, setEditingStorageFile] = useState<string | null>(null)
+  const [jsonFileOptions, setJsonFileOptions] = useState<string[]>([])
+  const [loadingJsonFiles, setLoadingJsonFiles] = useState(false)
+  const [jsonFilesError, setJsonFilesError] = useState('')
 
   const assignAssetName = (file: File, previousName?: string) => {
     if (!file) return previousName || ''
@@ -844,6 +847,27 @@ export default function MissionGeneratorPage() {
     }
   }
 
+  const fetchJsonFileOptions = async () => {
+    setLoadingJsonFiles(true)
+    setJsonFilesError('')
+    try {
+      const response = await fetch('/api/missions/storage-json')
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to load JSON file list.')
+      }
+      setJsonFileOptions(Array.isArray(result.files) ? result.files : [])
+    } catch (error: any) {
+      setJsonFilesError(error?.message || 'Unable to retrieve JSON file list.')
+    } finally {
+      setLoadingJsonFiles(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchJsonFileOptions()
+  }, [])
+
   const handleStandaloneImageUpload = async () => {
     setImageUploadError('')
     setImageUploadSuccess('')
@@ -1114,37 +1138,68 @@ export default function MissionGeneratorPage() {
                 <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-4">
                   <h3 className="text-sm font-semibold text-gray-900">Load Existing Mission</h3>
                   <p className="text-xs text-gray-500 mb-3">
-                    Enter a mission UID (e.g., M10) or a JSON file name (e.g., 14.json) to load data for editing.
+                    Select a JSON file or enter a mission UID to load data for editing.
                   </p>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="text"
-                      value={loadMissionUid}
-                      onChange={(e) => setLoadMissionUid(e.target.value)}
-                      className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., M10"
-                    />
-                    <button
-                      onClick={loadMissionFromSupabase}
-                      disabled={loadingMission}
-                      className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {loadingMission && (
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                      )}
-                      Load Mission
-                    </button>
-                    {editingMissionUid && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex-1">
+                        <select
+                          value={jsonFileOptions.includes(loadMissionUid) ? loadMissionUid : ''}
+                          onChange={(e) => setLoadMissionUid(e.target.value)}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+                        >
+                          <option value="">
+                            {loadingJsonFiles ? 'Loading JSON files…' : 'Select JSON file…'}
+                          </option>
+                          {jsonFileOptions.map((file) => (
+                            <option key={file} value={file}>
+                              {file}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <button
-                        onClick={handleResetForm}
-                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                        type="button"
+                        onClick={fetchJsonFileOptions}
+                        disabled={loadingJsonFiles}
+                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                       >
-                        Clear
+                        {loadingJsonFiles ? 'Refreshing…' : 'Refresh list'}
                       </button>
-                    )}
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="text"
+                        value={loadMissionUid}
+                        onChange={(e) => setLoadMissionUid(e.target.value)}
+                        className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="e.g., 10 or 14.json"
+                      />
+                      <button
+                        onClick={loadMissionFromSupabase}
+                        disabled={loadingMission}
+                        className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {loadingMission && (
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        )}
+                        Load Mission
+                      </button>
+                      {editingMode && (
+                        <button
+                          onClick={handleResetForm}
+                          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {loadMissionError && (
                     <p className="mt-2 text-xs text-red-600">{loadMissionError}</p>
+                  )}
+                  {jsonFilesError && (
+                    <p className="mt-2 text-xs text-red-600">{jsonFilesError}</p>
                   )}
                   {editingMode === 'table' && editingMissionUid && !loadMissionError && (
                     <p className="mt-2 text-xs text-green-600">
@@ -1199,7 +1254,7 @@ export default function MissionGeneratorPage() {
                       value={customMissionUid}
                       onChange={(e) => setCustomMissionUid(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="e.g., M10 or TEST-001"
+                      placeholder="e.g.,1,2,3,.., 10 "
                     />
                     <p className="mt-1 text-xs text-gray-500">
                       Used when uploading images/JSON. Defaults to mission reference code or title.
@@ -1214,7 +1269,7 @@ export default function MissionGeneratorPage() {
                       value={customImageFolder}
                       onChange={(e) => setCustomImageFolder(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      placeholder="e.g., M10/custom-images"
+                      placeholder="e.g., M10"
                     />
                     <p className="mt-1 text-xs text-gray-500">
                       Leave empty to store images in <code>MUID/images</code>. Avoid spaces or special characters.
