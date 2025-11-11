@@ -8,3 +8,4 @@ ADD COLUMN IF NOT EXISTS age INTEGER CHECK (age >= 0);
 
 
 
+

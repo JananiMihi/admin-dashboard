@@ -1,49 +1,176 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Wand2, Download, Plus, Trash2 } from 'lucide-react'
+
+const STORAGE_KEY = 'mission-generator-form'
+
+const createEmptyBlock = () => ({
+  image: '',
+  alt: '',
+  description: ''
+})
+
+const createEmptyMcq = () => ({
+  compalsary: null as boolean | null,
+  question: '',
+  options: ['', '', '', ''],
+  correctAnswer: 0,
+  feedback: { success: '', retry: '' }
+})
+
+const createEmptyStep = () => ({
+  title: '',
+  points: 0,
+  instruction: '',
+  note: '',
+  image: '',
+  hint: '',
+  important: '',
+  blocks: [createEmptyBlock()],
+  tryThis: '',
+  whyItWorks: '',
+  mcq: createEmptyMcq()
+})
+
+const createDefaultFormData = () => ({
+  version: 1,
+  layout: 'BlocklySplitLayout',
+  title: '',
+  description: '',
+  mission_time: '',
+  Difficulty: 1,
+  missionPageImage: '',
+  intro: {
+    image: '',
+    timeAllocated: '',
+    description: ''
+  },
+  learn_before_you_code: [{ topic: '', explanation: '' }],
+  requirements: [''],
+  blocks_used: [''],
+  steps: [createEmptyStep()],
+  mission_reference_code: '',
+  report_card: [{ task: '', points: 0 }],
+  total_points: 0,
+  learning_outcomes: [''],
+  resources: [{ type: 'image', path: '' }]
+})
+
+type FormDataState = ReturnType<typeof createDefaultFormData>
+
+const normalizeFormData = (raw: any): FormDataState => {
+  const defaults = createDefaultFormData()
+
+  const normalizeSteps = (steps: any): FormDataState['steps'] => {
+    if (!Array.isArray(steps) || steps.length === 0) return defaults.steps
+    return steps.map((step: any) => {
+      const baseStep = createEmptyStep()
+      return {
+        ...baseStep,
+        ...step,
+        blocks:
+          Array.isArray(step?.blocks) && step.blocks.length > 0
+            ? step.blocks.map((block: any) => ({
+                image: block?.image || '',
+                alt: block?.alt || '',
+                description: block?.description || ''
+              }))
+            : baseStep.blocks,
+        mcq: {
+          compalsary: (() => {
+            const value = step?.mcq?.compalsary
+            if (typeof value === 'boolean') return value
+            if (typeof value === 'string') {
+              const lowered = value.toLowerCase()
+              if (lowered === 'true') return true
+              if (lowered === 'false') return false
+            }
+            return null
+          })(),
+          question: step?.mcq?.question ?? '',
+          options:
+            Array.isArray(step?.mcq?.options) && step.mcq.options.length === 4
+              ? step.mcq.options
+              : baseStep.mcq.options,
+          correctAnswer:
+            typeof step?.mcq?.correctAnswer === 'number'
+              ? step.mcq.correctAnswer
+              : baseStep.mcq.correctAnswer,
+          feedback: {
+            success: step?.mcq?.feedback?.success ?? '',
+            retry: step?.mcq?.feedback?.retry ?? ''
+          }
+        }
+      }
+    })
+  }
+
+  return {
+    ...defaults,
+    ...raw,
+    intro: {
+      ...defaults.intro,
+      ...(raw?.intro || {})
+    },
+    learn_before_you_code: Array.isArray(raw?.learn_before_you_code) && raw.learn_before_you_code.length
+      ? raw.learn_before_you_code.map((item: any) => ({
+          topic: item?.topic ?? '',
+          explanation: item?.explanation ?? ''
+        }))
+      : defaults.learn_before_you_code,
+    requirements: Array.isArray(raw?.requirements) && raw.requirements.length
+      ? raw.requirements
+      : defaults.requirements,
+    blocks_used: Array.isArray(raw?.blocks_used) && raw.blocks_used.length
+      ? raw.blocks_used
+      : defaults.blocks_used,
+    steps: normalizeSteps(raw?.steps),
+    report_card: Array.isArray(raw?.report_card) && raw.report_card.length
+      ? raw.report_card.map((item: any) => ({
+          task: item?.task ?? '',
+          points: typeof item?.points === 'number' ? item.points : 0
+        }))
+      : defaults.report_card,
+    learning_outcomes: Array.isArray(raw?.learning_outcomes) && raw.learning_outcomes.length
+      ? raw.learning_outcomes
+      : defaults.learning_outcomes,
+    resources: Array.isArray(raw?.resources) && raw.resources.length
+      ? raw.resources.map((resource: any) => ({
+          type: resource?.type ?? 'image',
+          path: resource?.path ?? ''
+        }))
+      : defaults.resources
+  }
+}
 
 export default function MissionGeneratorPage() {
   const [jsonOutput, setJsonOutput] = useState('')
-  const [formData, setFormData] = useState({
-    version: 1,
-    layout: 'BlocklySplitLayout',
-    title: '',
-    description: '',
-    mission_time: '',
-    Difficulty: 1,
-    missionPageImage: '',
-    intro: {
-      image: '',
-      timeAllocated: '',
-      description: ''
-    },
-    learn_before_you_code: [{ topic: '', explanation: '' }],
-    requirements: [''],
-    blocks_used: [''],
-    steps: [{
-      title: '',
-      points: 0,
-      instruction: '',
-      note: '',
-      image: '',
-      blocks: [{ image: '', alt: '', description: '' }],
-      tryThis: '',
-      whyItWorks: '',
-      mcq: {
-        compalsary:'',
-        question: '',
-        options: ['', '', '', ''],
-        correctAnswer: 0,
-        feedback: { success: '', retry: '' }
+  const [formData, setFormData] = useState<FormDataState>(() => {
+    if (typeof window === 'undefined') {
+      return createDefaultFormData()
+    }
+
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return normalizeFormData(parsed)
       }
-    }],
-    mission_reference_code: '',
-    report_card: [{ task: '', points: 0 }],
-    total_points: 0,
-    learning_outcomes: [''],
-    resources: [{ type: 'image', path: '' }]
+    } catch (_err) {
+      // Ignore parse errors and fall back to defaults
+    }
+    return createDefaultFormData()
   })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(formData))
+    } catch (_err) {
+      // Ignore storage errors (e.g., quota exceeded)
+    }
+  }, [formData])
 
   const generateJSON = () => {
     const json = JSON.stringify(formData, null, 2)
@@ -130,11 +257,28 @@ export default function MissionGeneratorPage() {
     })
   }
 
+  const handleResetForm = () => {
+    const defaults = createDefaultFormData()
+    setFormData(defaults)
+    setJsonOutput('')
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+  }
+
   return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mission Generator</h1>
-          <p className="mt-1 text-sm text-gray-500">Create mission JSON files following Instructables format</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Mission Generator</h1>
+            <p className="mt-1 text-sm text-gray-500">Create mission JSON files following Instructables format</p>
+          </div>
+          <button
+            onClick={handleResetForm}
+            className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+          >
+            Clear saved form
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -418,6 +562,20 @@ export default function MissionGeneratorPage() {
                           placeholder="Step image"
                         />
                         <textarea
+                          value={step.hint}
+                          onChange={(e) => updateArrayItem('steps', idx, 'hint', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          rows={2}
+                          placeholder="Hint (optional)"
+                        />
+                        <textarea
+                          value={step.important}
+                          onChange={(e) => updateArrayItem('steps', idx, 'important', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          rows={2}
+                          placeholder="Important note (optional)"
+                        />
+                        <textarea
                           value={step.tryThis}
                           onChange={(e) => updateArrayItem('steps', idx, 'tryThis', e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -488,10 +646,10 @@ export default function MissionGeneratorPage() {
                           <button
                             onClick={() => {
                               const newData = JSON.parse(JSON.stringify(formData))
-                              if (!newData.steps[idx].blocks) {
-                                newData.steps[idx].blocks = []
-                              }
-                              newData.steps[idx].blocks.push({ image: '', alt: '', description: '' })
+                          if (!newData.steps[idx].blocks) {
+                            newData.steps[idx].blocks = []
+                          }
+                          newData.steps[idx].blocks.push(createEmptyBlock())
                               setFormData(newData)
                             }}
                             className="flex items-center gap-2 text-purple-600 text-sm"
@@ -504,17 +662,30 @@ export default function MissionGeneratorPage() {
                         {/* MCQ Section */}
                         <div className="border-t mt-3 pt-3">
                           <h4 className="font-medium mb-2">MCQ</h4>
-                          <input
-                            type="text"
-                            value={step.mcq?.compalsary || ''}
+                          <select
+                            value={
+                              step.mcq?.compalsary === null || step.mcq?.compalsary === undefined
+                                ? ''
+                                : step.mcq?.compalsary
+                                  ? 'true'
+                                  : 'false'
+                            }
                             onChange={(e) => {
                               const newData = JSON.parse(JSON.stringify(formData))
-                              newData.steps[idx].mcq.compalsary = e.target.value
+                              if (e.target.value === '') {
+                                newData.steps[idx].mcq.compalsary = null
+                              } else {
+                                newData.steps[idx].mcq.compalsary = e.target.value === 'true'
+                              }
                               setFormData(newData)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
-                            placeholder="Compalsary"
-                          />
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 mb-2"
+                          >
+                            <option value="">Compulsory question?</option>
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                          </select>
+                        
                           <input
                             type="text"
                             value={step.mcq?.question || ''}
@@ -588,23 +759,7 @@ export default function MissionGeneratorPage() {
                     </div>
                   ))}
                   <button
-                    onClick={() => addArrayItem('steps', {
-                    title: '',
-                    points: 0,
-                    instruction: '',
-                    note: '',
-                    image: '',
-                    blocks: [{ image: '', alt: '', description: '' }],
-                    tryThis: '',
-                    whyItWorks: '',
-                    mcq: {
-                      compalsary: '',
-                      question: '',
-                      options: ['', '', '', ''],
-                      correctAnswer: 0,
-                      feedback: { success: '', retry: '' }
-                    }
-                  })}
+                    onClick={() => addArrayItem('steps', createEmptyStep())}
                     className="flex items-center gap-2 text-purple-600"
                   >
                     <Plus className="h-4 w-4" />
