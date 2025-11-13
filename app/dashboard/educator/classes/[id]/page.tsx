@@ -30,6 +30,10 @@ interface Student {
   full_name: string | null
   email: string | null
   phone: string | null
+  age: number | null
+  onboarding_state: string | null
+  last_temporary_password: string | null
+  last_password_generated_at: string | null
   status: string
   enrolled_at?: string
 }
@@ -441,6 +445,15 @@ export default function ClassDetailPage() {
                           Contact
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Age
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Password
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Onboarding
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                           Enrolled
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -491,6 +504,39 @@ export default function ClassDetailPage() {
                                 <span className="text-gray-400 text-sm">No contact info</span>
                               )}
                             </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {typeof student.age === 'number' ? student.age : '—'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {student.last_temporary_password ? (
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <code className="px-2 py-1 bg-gray-100 dark:bg-gray-900 rounded text-xs text-gray-700 dark:text-gray-200">
+                                    {student.last_temporary_password}
+                                  </code>
+                                  <button
+                                    onClick={() => copyToClipboard(student.last_temporary_password || '')}
+                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                                {student.last_password_generated_at && (
+                                  <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                    Updated{' '}
+                                    {new Date(student.last_password_generated_at).toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {student.onboarding_state
+                              ? student.onboarding_state.replace(/_/g, ' ')
+                              : '—'}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                             {student.enrolled_at

@@ -145,8 +145,6 @@ export async function POST(req: NextRequest) {
           name: safeName,
           email: row.email?.trim() || null,
           phone: row.phone?.trim() || null,
-          studentId: row.student_id?.trim() || null,
-          parentEmail: row.parent_email?.trim() || null,
           classId,
           className: classData.name,
           orgId: profile.org_id,
@@ -194,6 +192,8 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+
 
 
 

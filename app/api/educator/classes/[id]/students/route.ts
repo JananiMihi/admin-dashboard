@@ -104,7 +104,7 @@ export async function GET(
     // Fetch user profiles for these users using service role (bypasses RLS)
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('user_profiles')
-      .select('user_id, full_name, email, phone')
+      .select('user_id, full_name, email, phone, age, onboarding_state, last_temporary_password, last_password_generated_at')
       .in('user_id', userIds)
 
     if (profilesError) {
@@ -124,6 +124,7 @@ export async function GET(
     // Use composite key (user_id + class_id) as id since enrollments has no id column
     const studentsData = enrollments.map((enrollment: any) => {
       const profile = profileMap.get(enrollment.user_id)
+
       return {
         id: `${enrollment.user_id}-${enrollment.class_id}`, // Composite key as id
         user_id: enrollment.user_id,
@@ -131,6 +132,10 @@ export async function GET(
         full_name: profile?.full_name || null,
         email: profile?.email || null,
         phone: profile?.phone || null,
+        age: typeof profile?.age === 'number' ? profile.age : null,
+        onboarding_state: profile?.onboarding_state || null,
+        last_temporary_password: profile?.last_temporary_password || null,
+        last_password_generated_at: profile?.last_password_generated_at || null,
         status: enrollment.status || 'active',
         enrolled_at: enrollment.enrolled_at || null
       }

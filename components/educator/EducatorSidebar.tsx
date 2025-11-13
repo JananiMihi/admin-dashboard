@@ -2,12 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  GraduationCap,
-  Users,
-  Settings,
-  LayoutDashboard
-} from 'lucide-react'
+import { GraduationCap, Settings, LayoutDashboard } from 'lucide-react'
 
 export default function EducatorSidebar() {
   const pathname = usePathname()
@@ -15,7 +10,6 @@ export default function EducatorSidebar() {
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/educator' },
     { icon: GraduationCap, label: 'Classes', href: '/dashboard/educator/classes' },
-    { icon: Users, label: 'Students', href: '/dashboard/educator/students' },
     { icon: Settings, label: 'Settings', href: '/dashboard/educator/settings' },
   ]
 

@@ -93,8 +93,6 @@ export default function CreateStudentModal({
     name: '',
     email: '',
     phone: '',
-    studentId: '',
-    parentEmail: '',
     age: '',
     classId: ''
   })
@@ -105,8 +103,6 @@ export default function CreateStudentModal({
       name: '',
       email: '',
       phone: '',
-      studentId: '',
-      parentEmail: '',
       age: '',
       classId: ''
     })
@@ -151,8 +147,6 @@ export default function CreateStudentModal({
           name: formData.name.trim(),
           email: formData.email.trim() || null,
           phone: formData.phone.trim() || null,
-          studentId: formData.studentId.trim() || null,
-          parentEmail: formData.parentEmail.trim() || null,
           age: formData.age ? Number(formData.age) : null,
           classId: formData.classId,
           credentialMethod,
@@ -172,7 +166,8 @@ export default function CreateStudentModal({
 
       setResult({
         credentialMethod,
-        temporaryPassword: payload.temporaryPassword,
+        temporaryPassword:
+          payload.student?.last_temporary_password ?? payload.temporaryPassword ?? null,
         joinLink: payload.joinLink,
         joinCode: payload.joinCode,
         invitationSent: payload.invitationSent,
@@ -306,42 +301,6 @@ export default function CreateStudentModal({
                       }))
                     }
                     placeholder="12"
-                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Student ID (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.studentId}
-                    onChange={(event) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        studentId: event.target.value
-                      }))
-                    }
-                    placeholder="District ID or roll number"
-                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Parent / guardian email
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.parentEmail}
-                    onChange={(event) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        parentEmail: event.target.value
-                      }))
-                    }
-                    placeholder="guardian@example.com"
                     className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                   />
                 </div>
@@ -595,8 +554,6 @@ export default function CreateStudentModal({
                       name: '',
                       email: '',
                       phone: '',
-                      studentId: '',
-                      parentEmail: '',
                       age: ''
                     }))
                     setPasswordMode('auto')
