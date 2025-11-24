@@ -9,6 +9,14 @@ const sanitizeMissionUid = (value: string) =>
     .replace(/[^a-zA-Z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
 
+const normalizeStoragePath = (path: string) => {
+  let sanitized = path.trim().replace(/^\/+/, '')
+  if (sanitized.startsWith(`${JSON_BUCKET}/`)) {
+    sanitized = sanitized.substring(JSON_BUCKET.length + 1)
+  }
+  return sanitized
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { missionUid: string } }
@@ -33,14 +41,6 @@ export async function GET(
   }
 
   let missionData = data.mission_data
-
-  const normalizeStoragePath = (path: string) => {
-    let sanitized = path.trim().replace(/^\/+/, '')
-    if (sanitized.startsWith(`${JSON_BUCKET}/`)) {
-      sanitized = sanitized.substring(JSON_BUCKET.length + 1)
-    }
-    return sanitized
-  }
 
   if (!missionData && data.object_path) {
     try {

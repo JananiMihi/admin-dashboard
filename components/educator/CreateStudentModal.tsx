@@ -10,7 +10,7 @@ import {
   Link2,
   Mail,
   Phone,
-  ClipboardPenLine
+  Wand2
 } from 'lucide-react'
 
 type CredentialMethod = 'magic_link' | 'temp_password' | 'code_only'
@@ -389,7 +389,7 @@ export default function CreateStudentModal({
                       }`}
                     >
                       <span className="font-medium">Auto-generate</span>
-                      <ClipboardPenLine className="h-4 w-4" />
+                      <Wand2 className="h-4 w-4" />
                     </button>
                     <button
                       type="button"

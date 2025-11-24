@@ -40,10 +40,11 @@ async function sendEmailDirectly(to: string, subject: string, html?: string, tex
   // Option 2: Use SMTP (Gmail, etc.)
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     try {
-      const nodemailer = await import('nodemailer').catch(() => null)
-      if (!nodemailer) {
+      const nodemailerModule = await import('nodemailer').catch(() => null)
+      if (!nodemailerModule) {
         console.warn('Nodemailer package not installed. Install with: npm install nodemailer')
       } else {
+        const nodemailer = nodemailerModule.default || nodemailerModule
         const transporter = nodemailer.createTransport({
           host: process.env.SMTP_HOST,
           port: parseInt(process.env.SMTP_PORT || '587'),
@@ -941,6 +942,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Create user profile
+    if (!authData?.user) {
+      return NextResponse.json(
+        { error: 'Failed to create user: user data is missing' },
+        { status: 500 }
+      )
+    }
+
     const { error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .insert({
@@ -998,7 +1006,7 @@ export async function POST(req: NextRequest) {
       email: email,
       verificationLink: verificationData?.properties?.action_link || null,
       loginUrl: `${process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/login`
-    })
+    }, { status: 200 })
   } catch (error: any) {
     console.error('Error creating educator:', error)
     return NextResponse.json(

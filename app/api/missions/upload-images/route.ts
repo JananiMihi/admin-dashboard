@@ -116,11 +116,11 @@ export async function POST(request: NextRequest) {
         throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`)
       }
 
-      const { data: publicUrlData, error: publicUrlError } = supabaseAdmin.storage
+      const { data: publicUrlData } = supabaseAdmin.storage
         .from(BUCKET_NAME)
         .getPublicUrl(storagePath)
 
-      if (publicUrlError || !publicUrlData?.publicUrl) {
+      if (!publicUrlData?.publicUrl) {
         throw new Error(`Failed to retrieve public URL for ${file.name}`)
       }
 
