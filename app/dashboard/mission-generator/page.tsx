@@ -411,6 +411,9 @@ export default function MissionGeneratorPage() {
   const [jsonFileOptions, setJsonFileOptions] = useState<string[]>([])
   const [loadingJsonFiles, setLoadingJsonFiles] = useState(false)
   const [jsonFilesError, setJsonFilesError] = useState('')
+  const [missionOptions, setMissionOptions] = useState<Array<{ mission_uid: string; title: string }>>([])
+  const [loadingMissions, setLoadingMissions] = useState(false)
+  const [selectedMissionUid, setSelectedMissionUid] = useState('')
 
   const assignAssetName = (file: File, previousName?: string) => {
     if (!file) return previousName || ''
@@ -864,9 +867,52 @@ export default function MissionGeneratorPage() {
     }
   }
 
+  const fetchMissionsFromDatabase = async () => {
+    setLoadingMissions(true)
+    try {
+      const response = await fetch('/api/missions')
+      const result = await response.json()
+      
+      console.log('Missions API response:', result)
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to load missions.')
+      }
+      
+      const missions = Array.isArray(result.missions) ? result.missions : []
+      console.log('Fetched missions:', missions)
+      
+      const mappedMissions = missions
+        .filter((m: any) => m.mission_uid) // Only include missions with mission_uid
+        .map((m: any) => ({
+          mission_uid: m.mission_uid || m.id,
+          title: m.title || 'Untitled Mission'
+        }))
+        .sort((a: { title: string }, b: { title: string }) => a.title.localeCompare(b.title))
+      
+      console.log('Mapped mission options:', mappedMissions)
+      setMissionOptions(mappedMissions)
+    } catch (error: any) {
+      console.error('Error fetching missions:', error)
+      setMissionOptions([])
+    } finally {
+      setLoadingMissions(false)
+    }
+  }
+
   useEffect(() => {
     fetchJsonFileOptions()
+    fetchMissionsFromDatabase()
   }, [])
+
+  const handleMissionSelect = async (missionUid: string) => {
+    setSelectedMissionUid(missionUid)
+    setLoadMissionUid(missionUid)
+    if (missionUid) {
+      // Load the mission using the selected mission_uid
+      await loadMissionFromSupabase()
+    }
+  }
 
   const handleStandaloneImageUpload = async () => {
     setImageUploadError('')
@@ -1138,14 +1184,56 @@ export default function MissionGeneratorPage() {
                 <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 p-4">
                   <h3 className="text-sm font-semibold text-gray-900">Load Existing Mission</h3>
                   <p className="text-xs text-gray-500 mb-3">
-                    Select a JSON file or enter a mission UID to load data for editing.
+                    Select a mission by title or enter a mission UID to load data for editing.
                   </p>
                   <div className="flex flex-col gap-3">
+                    {/* Mission Title Dropdown */}
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <div className="flex-1">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Select Mission by Title
+                        </label>
+                        <select
+                          value={selectedMissionUid}
+                          onChange={(e) => handleMissionSelect(e.target.value)}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+                        >
+                          <option value="">
+                            {loadingMissions ? 'Loading missions…' : missionOptions.length === 0 ? 'No missions found' : 'Select mission by title…'}
+                          </option>
+                          {missionOptions.length > 0 ? (
+                            missionOptions.map((mission) => (
+                              <option key={mission.mission_uid} value={mission.mission_uid}>
+                                {mission.title}
+                              </option>
+                            ))
+                          ) : (
+                            !loadingMissions && <option value="" disabled>No missions available</option>
+                          )}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={fetchMissionsFromDatabase}
+                        disabled={loadingMissions}
+                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 mt-6"
+                      >
+                        {loadingMissions ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                    
+                    {/* JSON File Dropdown (keep for backward compatibility) */}
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="flex-1">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Or Select JSON File
+                        </label>
                         <select
                           value={jsonFileOptions.includes(loadMissionUid) ? loadMissionUid : ''}
-                          onChange={(e) => setLoadMissionUid(e.target.value)}
+                          onChange={(e) => {
+                            setLoadMissionUid(e.target.value)
+                            setSelectedMissionUid('')
+                          }}
                           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
                         >
                           <option value="">
@@ -1162,23 +1250,33 @@ export default function MissionGeneratorPage() {
                         type="button"
                         onClick={fetchJsonFileOptions}
                         disabled={loadingJsonFiles}
-                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                        className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 mt-6"
                       >
-                        {loadingJsonFiles ? 'Refreshing…' : 'Refresh list'}
+                        {loadingJsonFiles ? 'Refreshing…' : 'Refresh'}
                       </button>
                     </div>
+                    
+                    {/* Manual UID Input */}
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        type="text"
-                        value={loadMissionUid}
-                        onChange={(e) => setLoadMissionUid(e.target.value)}
-                        className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="e.g., 10 or 14.json"
-                      />
+                      <div className="flex-1">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Or Enter Mission UID
+                        </label>
+                        <input
+                          type="text"
+                          value={loadMissionUid}
+                          onChange={(e) => {
+                            setLoadMissionUid(e.target.value)
+                            setSelectedMissionUid('')
+                          }}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="e.g., 10 or 14.json"
+                        />
+                      </div>
                       <button
                         onClick={loadMissionFromSupabase}
                         disabled={loadingMission}
-                        className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 mt-6"
                       >
                         {loadingMission && (
                           <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -1188,7 +1286,7 @@ export default function MissionGeneratorPage() {
                       {editingMode && (
                         <button
                           onClick={handleResetForm}
-                          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                          className="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 mt-6"
                         >
                           Clear
                         </button>
