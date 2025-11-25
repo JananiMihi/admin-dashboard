@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
-import { ArrowLeft, Users, Settings, Copy, Check, GraduationCap, UserPlus, Mail, Phone, Trash2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Users, Settings, Copy, Check, GraduationCap, UserPlus, Mail, Phone, Trash2, AlertTriangle, Target, Plus, GripVertical, X, Search } from 'lucide-react'
 import Link from 'next/link'
 import AddStudentModal from '@/components/educator/AddStudentModal'
 
@@ -46,7 +46,15 @@ export default function ClassDetailPage() {
   const [classData, setClassData] = useState<ClassData | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'overview' | 'roster' | 'settings'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'roster' | 'missions' | 'settings'>('overview')
+  const [classMissions, setClassMissions] = useState<Array<{ id: string; mission_uid: string; title: string; order: number }>>([])
+  const [availableMissions, setAvailableMissions] = useState<Array<{ id: string; mission_uid: string; title: string }>>([])
+  const [showAddMissionModal, setShowAddMissionModal] = useState(false)
+  const [draggedMission, setDraggedMission] = useState<string | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [isDraggingOverDropZone, setIsDraggingOverDropZone] = useState(false)
+  const [missionSearchTerm, setMissionSearchTerm] = useState('')
+  const [loadingMissions, setLoadingMissions] = useState(false)
   const [copied, setCopied] = useState(false)
   const [addStudentModalOpen, setAddStudentModalOpen] = useState(false)
   const [deleteClassConfirmOpen, setDeleteClassConfirmOpen] = useState(false)
@@ -57,14 +65,115 @@ export default function ClassDetailPage() {
   useEffect(() => {
     fetchClassData()
     fetchStudents()
+    fetchClassMissions()
+    fetchAvailableMissions()
     
     // Check for tab parameter in URL
     const urlParams = new URLSearchParams(window.location.search)
     const tabParam = urlParams.get('tab')
     if (tabParam === 'roster') {
       setActiveTab('roster')
+    } else if (tabParam === 'missions') {
+      setActiveTab('missions')
     }
   }, [classId])
+
+  const fetchClassMissions = async () => {
+    try {
+      // Mock data for UI - replace with actual API call
+      const mockMissions = [
+        { id: '1', mission_uid: 'M1', title: 'Introduction to Python', order: 1 },
+        { id: '2', mission_uid: 'M2', title: 'Variables and Data Types', order: 2 },
+        { id: '3', mission_uid: 'M3', title: 'Control Flow', order: 3 },
+      ]
+      setClassMissions(mockMissions)
+    } catch (error) {
+      console.error('Error fetching class missions:', error)
+    }
+  }
+
+  const fetchAvailableMissions = async () => {
+    setLoadingMissions(true)
+    try {
+      const response = await fetch('/api/missions')
+      const result = await response.json()
+      if (response.ok && result.missions) {
+        const missions = result.missions.map((m: any) => ({
+          id: m.mission_uid || m.id,
+          mission_uid: m.mission_uid || m.id,
+          title: m.title || 'Untitled Mission',
+          description: m.description || '',
+          difficulty: m.difficulty || '',
+          order_no: m.order_no || null
+        }))
+        setAvailableMissions(missions)
+      } else {
+        console.error('Failed to fetch missions:', result.error)
+      }
+    } catch (error) {
+      console.error('Error fetching available missions:', error)
+    } finally {
+      setLoadingMissions(false)
+    }
+  }
+
+  const handleAddMission = (mission: { id: string; mission_uid: string; title: string }) => {
+    const maxOrder = classMissions.length > 0 
+      ? Math.max(...classMissions.map(m => m.order)) 
+      : 0
+    const newMission = {
+      ...mission,
+      order: maxOrder + 1
+    }
+    setClassMissions([...classMissions, newMission])
+    setShowAddMissionModal(false)
+  }
+
+  const handleRemoveMission = (missionId: string) => {
+    setClassMissions(classMissions.filter(m => m.id !== missionId))
+  }
+
+  const handleDragStart = (e: React.DragEvent, missionId: string) => {
+    setDraggedMission(missionId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIndex(index)
+  }
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    if (!draggedMission) return
+
+    const draggedIndex = classMissions.findIndex(m => m.id === draggedMission)
+    if (draggedIndex === -1) return
+
+    const newMissions = [...classMissions]
+    const [removed] = newMissions.splice(draggedIndex, 1)
+    newMissions.splice(dropIndex, 0, removed)
+
+    // Update order numbers
+    const reordered = newMissions.map((mission, index) => ({
+      ...mission,
+      order: index + 1
+    }))
+
+    setClassMissions(reordered)
+    setDraggedMission(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedMission(null)
+    setDragOverIndex(null)
+  }
 
   const fetchClassData = async () => {
     try {
@@ -297,6 +406,17 @@ export default function ClassDetailPage() {
             >
               <Users className="w-4 h-4" />
               Roster ({students.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('missions')}
+              className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 flex items-center gap-2 ${
+                activeTab === 'missions'
+                  ? 'text-blue-600 border-blue-600'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border-transparent'
+              }`}
+            >
+              <Target className="w-4 h-4" />
+              Missions ({classMissions.length})
             </button>
             <button
               onClick={() => setActiveTab('settings')}
@@ -579,6 +699,228 @@ export default function ClassDetailPage() {
           </div>
         )}
 
+        {activeTab === 'missions' && (
+          <div className="space-y-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Class Missions
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Drag missions from the list to add them to this class, or reorder existing missions
+                </p>
+              </div>
+
+              {/* Two Column Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Side: Available Missions List */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                      Platform Missions
+                    </h3>
+                    <button
+                      onClick={fetchAvailableMissions}
+                      disabled={loadingMissions}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 disabled:opacity-50"
+                    >
+                      {loadingMissions ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={missionSearchTerm}
+                      onChange={(e) => setMissionSearchTerm(e.target.value)}
+                      placeholder="Search missions..."
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  </div>
+
+                  {/* Missions List */}
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 max-h-[600px] overflow-y-auto bg-gray-50 dark:bg-gray-900/50">
+                    {loadingMissions ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Loading...</p>
+                      </div>
+                    ) : availableMissions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Target className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">No missions available</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {availableMissions
+                          .filter((mission) => {
+                            if (!missionSearchTerm) return true
+                            const searchLower = missionSearchTerm.toLowerCase()
+                            return (
+                              mission.title.toLowerCase().includes(searchLower) ||
+                              mission.mission_uid.toLowerCase().includes(searchLower) ||
+                              (mission.description && mission.description.toLowerCase().includes(searchLower))
+                            )
+                          })
+                          .map((mission) => {
+                            const isInClass = classMissions.some(cm => cm.id === mission.id)
+                            return (
+                              <div
+                                key={mission.id}
+                                draggable={!isInClass}
+                                onDragStart={(e) => {
+                                  if (!isInClass) {
+                                    e.dataTransfer.effectAllowed = 'copy'
+                                    e.dataTransfer.setData('mission', JSON.stringify(mission))
+                                  }
+                                }}
+                                className={`p-3 border rounded-lg transition-all ${
+                                  isInClass
+                                    ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 opacity-60 cursor-not-allowed'
+                                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-move'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                                      <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                        {mission.title}
+                                      </h4>
+                                      {isInClass && (
+                                        <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded flex-shrink-0">
+                                          Added
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 ml-6 truncate">
+                                      {mission.mission_uid}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        {availableMissions.filter((mission) => {
+                          if (!missionSearchTerm) return true
+                          const searchLower = missionSearchTerm.toLowerCase()
+                          return (
+                            mission.title.toLowerCase().includes(searchLower) ||
+                            mission.mission_uid.toLowerCase().includes(searchLower) ||
+                            (mission.description && mission.description.toLowerCase().includes(searchLower))
+                          )
+                        }).length === 0 && (
+                          <div className="text-center py-8">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">No missions found</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Side: Class Missions (Drag and Drop) */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                    Class Missions ({classMissions.length})
+                  </h3>
+                  
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'copy'
+                      setIsDraggingOverDropZone(true)
+                    }}
+                    onDragLeave={() => {
+                      setIsDraggingOverDropZone(false)
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      setIsDraggingOverDropZone(false)
+                      const missionData = e.dataTransfer.getData('mission')
+                      if (missionData) {
+                        try {
+                          const mission = JSON.parse(missionData)
+                          if (!classMissions.some(cm => cm.id === mission.id)) {
+                            handleAddMission(mission)
+                          }
+                        } catch (err) {
+                          console.error('Error parsing mission data:', err)
+                        }
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-lg p-4 min-h-[400px] transition-all ${
+                      isDraggingOverDropZone
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30'
+                    }`}
+                  >
+                    {classMissions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[350px] text-center">
+                        <Target className="w-12 h-12 text-gray-400 mb-4" />
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">No missions in this class</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500">
+                          Drag missions from the left to add them here
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 px-2">
+                          Drag to reorder missions
+                        </div>
+                        {classMissions
+                          .sort((a, b) => a.order - b.order)
+                          .map((mission, index) => (
+                            <div
+                              key={mission.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, mission.id)}
+                              onDragOver={(e) => handleDragOver(e, index)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, index)}
+                              onDragEnd={handleDragEnd}
+                              className={`flex items-center gap-3 p-3 border rounded-lg transition-all ${
+                                draggedMission === mission.id
+                                  ? 'opacity-50 border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                  : dragOverIndex === index
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 border-dashed'
+                                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
+                              } cursor-move`}
+                            >
+                              <GripVertical className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400 w-6">
+                                    {mission.order}.
+                                  </span>
+                                  <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                    {mission.title}
+                                  </h3>
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-8">
+                                  {mission.mission_uid}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveMission(mission.id)}
+                                className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                                title="Remove mission"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'settings' && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
@@ -675,6 +1017,164 @@ export default function ClassDetailPage() {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Mission Modal */}
+      {showAddMissionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[85vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Select Mission for Class
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Choose from {availableMissions.length} platform missions
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddMissionModal(false)
+                    setMissionSearchTerm('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={missionSearchTerm}
+                  onChange={(e) => setMissionSearchTerm(e.target.value)}
+                  placeholder="Search missions by title or UID..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingMissions ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Loading missions...</p>
+                </div>
+              ) : availableMissions.length === 0 ? (
+                <div className="text-center py-12">
+                  <Target className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400">No missions available</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availableMissions
+                    .filter((mission) => {
+                      if (!missionSearchTerm) return true
+                      const searchLower = missionSearchTerm.toLowerCase()
+                      return (
+                        mission.title.toLowerCase().includes(searchLower) ||
+                        mission.mission_uid.toLowerCase().includes(searchLower) ||
+                        (mission.description && mission.description.toLowerCase().includes(searchLower))
+                      )
+                    })
+                    .map((mission) => {
+                      const isAlreadyAdded = classMissions.some(cm => cm.id === mission.id)
+                      return (
+                        <div
+                          key={mission.id}
+                          className={`p-4 border rounded-lg transition-colors ${
+                            isAlreadyAdded
+                              ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 opacity-60'
+                              : 'border-gray-200 dark:border-gray-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer'
+                          }`}
+                          onClick={() => !isAlreadyAdded && handleAddMission(mission)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {mission.title}
+                                </h4>
+                                {isAlreadyAdded && (
+                                  <span className="px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-full">
+                                    Added
+                                  </span>
+                                )}
+                              </div>
+                              {mission.description && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                                  {mission.description}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-4 mt-2">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  UID: <span className="font-mono">{mission.mission_uid}</span>
+                                </span>
+                                {mission.difficulty && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    Difficulty: {mission.difficulty}
+                                  </span>
+                                )}
+                                {mission.order_no !== null && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    Order: {mission.order_no}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {!isAlreadyAdded && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAddMission(mission)
+                                }}
+                                className="ml-4 p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors flex-shrink-0"
+                                title="Add mission to class"
+                              >
+                                <Plus className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  {availableMissions.filter((mission) => {
+                    if (!missionSearchTerm) return true
+                    const searchLower = missionSearchTerm.toLowerCase()
+                    return (
+                      mission.title.toLowerCase().includes(searchLower) ||
+                      mission.mission_uid.toLowerCase().includes(searchLower) ||
+                      (mission.description && mission.description.toLowerCase().includes(searchLower))
+                    )
+                  }).length === 0 && (
+                    <div className="text-center py-12">
+                      <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600 dark:text-gray-400">No missions found matching your search</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                {classMissions.length} mission{classMissions.length !== 1 ? 's' : ''} in this class
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddMissionModal(false)
+                  setMissionSearchTerm('')
+                }}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
