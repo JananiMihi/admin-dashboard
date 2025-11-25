@@ -323,3 +323,4 @@ SELECT * FROM get_customized_mission('class-uuid', 'mission-uuid');
 
 
 
+

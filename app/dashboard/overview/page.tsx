@@ -28,21 +28,52 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchData()
+    // Small delay to ensure Supabase is ready after login
+    const timer = setTimeout(() => {
+      fetchData()
+    }, 100)
+    
     const interval = setInterval(fetchData, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearTimeout(timer)
+      clearInterval(interval)
+    }
   }, [])
 
   const fetchData = async () => {
     try {
-      // Fetch user profiles
+      setLoading(true)
+      
+      // Fetch ALL auth users (this gives us the actual user count)
+      let authUsers: any[] = []
+      let totalAuthUsers = 0
+      try {
+        const { data: { users }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
+        if (!authError && users) {
+          // Filter out service accounts
+          authUsers = users.filter((user: any) => {
+            const email = user.email?.toLowerCase() || ''
+            return !email.includes('service') && !email.includes('system')
+          })
+          totalAuthUsers = authUsers.length
+          console.log(`Fetched ${totalAuthUsers} auth users`)
+        }
+      } catch (err) {
+        console.error('Cannot fetch auth users:', err)
+      }
+
+      // Fetch ALL user profiles (no limit to get accurate count)
       const { data: profilesData, error: profilesError } = await supabaseAdmin
         .from('user_profiles')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100)
 
-      if (profilesError) throw profilesError
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError)
+        throw profilesError
+      }
+
+      console.log(`Fetched ${profilesData?.length || 0} user profiles`)
 
       // Try fetching from users table if it exists
       let usersData: any[] = []
@@ -52,18 +83,7 @@ export default function OverviewPage() {
           .select('*')
         usersData = users || []
       } catch (err) {
-        console.log('Users table not found')
-      }
-
-      // Try fetching from auth.users
-      let authUsers: any[] = []
-      try {
-        const { data: { users }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
-        if (!authError && users) {
-          authUsers = users
-        }
-      } catch (err) {
-        console.log('Cannot fetch auth users:', err)
+        // Table doesn't exist - this is fine
       }
 
       // Fetch missions count
@@ -72,39 +92,83 @@ export default function OverviewPage() {
         .select('*', { count: 'exact', head: true })
 
       // Fetch total progress from user_data table
-      // Total progress is the number of users who have completed at least 1 mission
-      // (current_mission > 0 means they've moved past the first mission)
       const { data: userData, error: userDataError } = await supabaseAdmin
         .from('user_data')
         .select('current_mission')
       
       let totalProgress = 0
       if (!userDataError && userData) {
-        // Count users who have completed at least mission 0 (current_mission > 0)
         totalProgress = userData.filter((user: any) => user.current_mission > 0).length
       }
 
-      // Combine profiles with user data
-      const enrichedProfiles = (profilesData || []).map((profile: any) => {
-        const userInfo = usersData.find(u => u.id === profile.user_id) || {}
-        const authUser = authUsers.find(u => u.id === profile.user_id) || {}
-        
-        // Try multiple sources for name and email
-        const email = userInfo.email || authUser.email || profile.email || `User-${profile.user_id?.substring(0, 8) || 'Unknown'}`
-        const name = userInfo.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || profile.name || `User ${profile.user_id?.substring(0, 8) || 'Unknown'}`
-        
-        return {
-          ...profile,
-          email,
-          name,
-          created_at: profile.created_at || new Date().toISOString()
-        }
+      // Create a map of all users combining auth users and profiles
+      // Start with all auth users, then enrich with profile data where available
+      const userMap = new Map()
+      
+      // First, add all auth users
+      authUsers.forEach((authUser: any) => {
+        userMap.set(authUser.id, {
+          user_id: authUser.id,
+          email: authUser.email || `User-${authUser.id?.substring(0, 8)}`,
+          name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || `User ${authUser.id?.substring(0, 8)}`,
+          full_name: authUser.user_metadata?.full_name || authUser.user_metadata?.name,
+          level: 1,
+          total_xp: 0,
+          badges: [],
+          role: authUser.user_metadata?.role || null,
+          created_at: authUser.created_at || new Date().toISOString()
+        })
       })
 
-      const totalUsers = enrichedProfiles.length || 0
-      const avgLevel = enrichedProfiles.reduce((sum: number, p: any) => sum + (p.level || 1), 0) / totalUsers || 0
+      // Then, enrich with profile data where available
+      if (profilesData && profilesData.length > 0) {
+        profilesData.forEach((profile: any) => {
+          const existingUser = userMap.get(profile.user_id)
+          const userInfo = usersData.find(u => u.id === profile.user_id) || {}
+          const authUser = authUsers.find(u => u.id === profile.user_id) || {}
+          
+          const email = userInfo.email || authUser.email || profile.email || profile.full_name || existingUser?.email || `User-${profile.user_id?.substring(0, 8) || 'Unknown'}`
+          const name = userInfo.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || profile.full_name || profile.name || existingUser?.name || `User ${profile.user_id?.substring(0, 8) || 'Unknown'}`
+          
+          userMap.set(profile.user_id, {
+            ...profile,
+            email,
+            name,
+            created_at: profile.created_at || existingUser?.created_at || new Date().toISOString()
+          })
+        })
+      }
+
+      // Convert map to array and sort by created_at (most recent first)
+      const enrichedProfiles = Array.from(userMap.values())
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          return dateB - dateA
+        })
+        .slice(0, 100) // Limit to 100 for display
+
+      console.log(`Total enriched profiles for display: ${enrichedProfiles.length}`)
+
+      // Use auth users count for total users (most accurate)
+      const totalUsers = totalAuthUsers > 0 ? totalAuthUsers : enrichedProfiles.length
+      
+      // Calculate stats from profiles that have data
+      const profilesWithData = enrichedProfiles.filter(p => p.level !== undefined || p.total_xp !== undefined)
+      const avgLevel = profilesWithData.length > 0 
+        ? profilesWithData.reduce((sum: number, p: any) => sum + (p.level || 1), 0) / profilesWithData.length 
+        : 0
       const totalXP = enrichedProfiles.reduce((sum: number, p: any) => sum + (p.total_xp || 0), 0) || 0
-      const avgBadges = enrichedProfiles.reduce((sum: number, p: any) => sum + (p.badges?.length || 0), 0) / totalUsers || 0
+      const avgBadges = profilesWithData.length > 0
+        ? profilesWithData.reduce((sum: number, p: any) => sum + (p.badges?.length || 0), 0) / profilesWithData.length 
+        : 0
+
+      console.log('Setting stats:', {
+        totalUsers,
+        totalMissions: totalMissions || 0,
+        totalProgress,
+        profilesCount: enrichedProfiles.length
+      })
 
       setProfiles(enrichedProfiles)
       setStats({

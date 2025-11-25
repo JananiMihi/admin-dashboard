@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabaseAdmin } from '@/lib/supabase'
-import { Search, Users, Plus, UserCheck, Key, Mail } from 'lucide-react'
+import { Search, Users, Plus, UserCheck, Key } from 'lucide-react'
 import CreateEducatorModal from '@/components/admin/CreateEducatorModal'
 
 export default function UsersPage() {
@@ -157,24 +157,38 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      // Fetch user profiles from user_profiles table
+      setLoading(true)
+      
+      // Fetch ALL auth users FIRST (this gives us all registered users)
+      let authUsers: any[] = []
+      try {
+        const { data: { users }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
+        if (!authError && users) {
+          // Filter out service accounts
+          authUsers = users.filter((user: any) => {
+            const email = user.email?.toLowerCase() || ''
+            return !email.includes('service') && !email.includes('system')
+          })
+          console.log(`Fetched ${authUsers.length} auth users`)
+        }
+      } catch (err) {
+        console.error('Cannot fetch auth users:', err)
+      }
+
+      // Fetch ALL user profiles from user_profiles table
       const { data: profilesData, error: profilesError } = await supabaseAdmin
         .from('user_profiles')
         .select('*')
         .order('created_at', { ascending: false })
 
-      if (profilesError) throw profilesError
-
-      // Try to fetch auth users
-      let authUsers: any[] = []
-      try {
-        const { data: { users } } = await supabaseAdmin.auth.admin.listUsers()
-        authUsers = users || []
-      } catch (err) {
-        console.log('Cannot fetch auth users:', err)
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError)
+        throw profilesError
       }
 
-      // Try to fetch from users table
+      console.log(`Fetched ${profilesData?.length || 0} user profiles`)
+
+      // Try to fetch from users table if it exists
       let usersData: any[] = []
       try {
         const { data: usersTable } = await supabaseAdmin
@@ -182,31 +196,59 @@ export default function UsersPage() {
           .select('*')
         usersData = usersTable || []
       } catch (err) {
-        console.log('Users table not found')
+        // Table doesn't exist - this is fine
       }
 
-      // Enrich profiles with user data
-      const enrichedData = (profilesData || []).map((profile: any) => {
-        // Try to find user info from different sources
-        const authUser = authUsers.find(u => u.id === profile.user_id) || {}
-        const userInfo = usersData.find(u => u.id === profile.user_id) || {}
-        
-        // Log profile data for debugging
-        console.log('Profile data:', profile)
-        console.log('Auth user found:', authUser)
-        console.log('User info found:', userInfo)
-        
-        const enriched = {
-          ...profile,
-          email: userInfo.email || authUser.email || profile.email || `User-${profile.user_id?.substring(0, 8)}`,
-          name: userInfo.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || profile.name || `User ${profile.user_id?.substring(0, 8)}`
-        }
-        
-        console.log('Enriched profile:', enriched)
-        return enriched
+      // Create a map of all users combining auth users and profiles
+      // Start with all auth users, then enrich with profile data where available
+      const userMap = new Map()
+      
+      // First, add all auth users
+      authUsers.forEach((authUser: any) => {
+        userMap.set(authUser.id, {
+          user_id: authUser.id,
+          id: authUser.id,
+          email: authUser.email || `User-${authUser.id?.substring(0, 8)}`,
+          name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || `User ${authUser.id?.substring(0, 8)}`,
+          full_name: authUser.user_metadata?.full_name || authUser.user_metadata?.name,
+          role: authUser.user_metadata?.role || null,
+          level: 1,
+          total_xp: 0,
+          badges: [],
+          created_at: authUser.created_at || new Date().toISOString()
+        })
       })
 
-      console.log('Enriched data:', enrichedData) // Debug log
+      // Then, enrich with profile data where available
+      if (profilesData && profilesData.length > 0) {
+        profilesData.forEach((profile: any) => {
+          const existingUser = userMap.get(profile.user_id)
+          const userInfo = usersData.find(u => u.id === profile.user_id) || {}
+          const authUser = authUsers.find(u => u.id === profile.user_id) || {}
+          
+          const email = userInfo.email || authUser.email || profile.email || profile.full_name || existingUser?.email || `User-${profile.user_id?.substring(0, 8) || 'Unknown'}`
+          const name = userInfo.name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || profile.full_name || profile.name || existingUser?.name || `User ${profile.user_id?.substring(0, 8) || 'Unknown'}`
+          
+          userMap.set(profile.user_id, {
+            ...profile,
+            id: profile.user_id || profile.id,
+            email,
+            name,
+            role: profile.role || authUser.user_metadata?.role || null,
+            created_at: profile.created_at || existingUser?.created_at || new Date().toISOString()
+          })
+        })
+      }
+
+      // Convert map to array and sort by created_at (most recent first)
+      const enrichedData = Array.from(userMap.values())
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          return dateB - dateA
+        })
+
+      console.log(`Total users for display: ${enrichedData.length}`)
       setUsers(enrichedData)
     } catch (error: any) {
       console.error('Error fetching users:', error.message)
@@ -281,17 +323,6 @@ export default function UsersPage() {
                 Role: {currentUserRole || 'null'}
               </div>
             )}
-            <button
-              onClick={() => {
-                const verifyUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-                window.location.href = `${verifyUrl}/auth/verify-educator`
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              title="Open Educator Verification Page"
-            >
-              <Mail className="w-5 h-5" />
-              Verify Educator
-            </button>
             <button
               onClick={() => setCreateEducatorOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
