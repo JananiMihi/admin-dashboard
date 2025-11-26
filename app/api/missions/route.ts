@@ -7,7 +7,7 @@ export async function GET(_req: NextRequest) {
     const { data: missions, error } = await supabaseAdmin
       .from('missions')
       .select('*')
-      .order('order_no', { ascending: true, nullsLast: true })
+      .order('order_no', { ascending: true })
 
     if (error) {
       console.error('Error fetching missions:', error)

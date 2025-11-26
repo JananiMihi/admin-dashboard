@@ -48,7 +48,7 @@ export default function ClassDetailPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'overview' | 'roster' | 'missions' | 'settings'>('overview')
   const [classMissions, setClassMissions] = useState<Array<{ id: string; mission_uid: string; title: string; order: number }>>([])
-  const [availableMissions, setAvailableMissions] = useState<Array<{ id: string; mission_uid: string; title: string }>>([])
+  const [availableMissions, setAvailableMissions] = useState<Array<{ id: string; mission_uid: string; title: string; description?: string; difficulty?: string; order_no?: number | null }>>([])
   const [showAddMissionModal, setShowAddMissionModal] = useState(false)
   const [draggedMission, setDraggedMission] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
