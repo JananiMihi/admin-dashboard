@@ -5,6 +5,7 @@ import {
   createStudentAccount,
   CredentialMethod
 } from '@/lib/educator/student-service'
+import { getAppUrl } from '@/lib/utils/url-helper'
 
 const DEFAULT_METHOD: CredentialMethod = 'magic_link'
 
@@ -126,6 +127,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Get request host to determine the correct app URL for join links
+    const requestHost = req.headers.get('host')
+    const appUrl = getAppUrl(requestHost)
+
     const result = await createStudentAccount({
       name,
       email: email || null,
@@ -136,7 +141,8 @@ export async function POST(req: NextRequest) {
       orgId: profile.org_id,
       createdByUserId: user.id,
       credentialMethod: method,
-      manualPassword: passwordToUse
+      manualPassword: passwordToUse,
+      appUrl // Pass the dynamic URL
     })
 
     return NextResponse.json({

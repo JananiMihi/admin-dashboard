@@ -20,35 +20,21 @@ export default function VerifyEducatorPage() {
   const [showResetForm, setShowResetForm] = useState(false)
 
   useEffect(() => {
-      // CRITICAL: Check if we're on deployed domain and force redirect to localhost
-      // Supabase's action_link always uses the Site URL from their dashboard, which is neo.magicbit.cc
-      // We MUST redirect to localhost immediately
+      // Only redirect to localhost in development mode
+      // In production, both domains (neo.magicbit.cc and neoadmin.magicbit.cc) are supported
       if (typeof window !== 'undefined') {
         const currentHost = window.location.host
-        const isDeployedDomain = currentHost.includes('neo.magicbit.cc')
-
-        if (isDeployedDomain) {
-          // Extract any hash parameters (tokens, errors, etc.) before redirecting
-          const hash = window.location.hash || ''
-          const search = window.location.search || ''
-          const pathname = window.location.pathname
-          
-          // Build localhost URL preserving all parameters
-          let localhostUrl = `http://localhost:3001${pathname}${search}${hash}`
-          
-          // If pathname is / (root) or /login, redirect to verify-educator
-          if (pathname === '/' || pathname === '/login') {
-            localhostUrl = `http://localhost:3001/auth/verify-educator${search}${hash}`
-          }
-          
-          console.log('⚠️ CRITICAL: Redirecting from deployed domain (neo.magicbit.cc) to localhost')
-          console.log('Original URL:', window.location.href)
-          console.log('Redirecting to:', localhostUrl)
-          
-          // Force redirect immediately
-          window.location.replace(localhostUrl)
-          return // Exit early, don't process auth callback
+        const isLocalhost = currentHost.includes('localhost') || currentHost.includes('127.0.0.1')
+        const isDeployedDomain = currentHost.includes('neo.magicbit.cc') || currentHost.includes('neoadmin.magicbit.cc')
+        
+        // Only redirect if we're in development and somehow got a deployed domain URL
+        // This should not happen in production, but helps with local development testing
+        if (isLocalhost && isDeployedDomain) {
+          // This case shouldn't happen, but handle it gracefully
+          console.warn('Unexpected: localhost detected deployed domain in URL')
         }
+        
+        // No redirect needed in production - both domains are supported
       }
     
     // Handle Supabase auth callback
@@ -76,7 +62,8 @@ export default function VerifyEducatorPage() {
           } else if (verifyError) {
             console.error('OTP verification error:', verifyError)
             // Redirect through our local proxy route which will handle Supabase verification
-            const redirectUrl = `http://localhost:3001/auth/verify-educator`
+            const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+            const redirectUrl = `${baseUrl}/auth/verify-educator`
             const localVerifyUrl = `/api/auth/v1/verify?token=${tokenFromQuery}&type=${typeFromQuery}&redirect_to=${encodeURIComponent(redirectUrl)}`
             window.location.href = localVerifyUrl
             return
@@ -84,7 +71,8 @@ export default function VerifyEducatorPage() {
         } catch (otpError) {
           console.error('OTP verification error:', otpError)
           // Redirect through our local proxy route which will handle Supabase verification
-          const redirectUrl = `http://localhost:3001/auth/verify-educator`
+          const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+          const redirectUrl = `${baseUrl}/auth/verify-educator`
           const localVerifyUrl = `/api/auth/v1/verify?token=${tokenFromQuery}&type=${typeFromQuery}&redirect_to=${encodeURIComponent(redirectUrl)}`
           window.location.href = localVerifyUrl
           return

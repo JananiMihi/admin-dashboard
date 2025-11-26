@@ -6,6 +6,7 @@ import {
   createStudentAccount,
   CredentialMethod
 } from '@/lib/educator/student-service'
+import { getAppUrl } from '@/lib/utils/url-helper'
 
 interface ParsedRow {
   name?: string
@@ -119,6 +120,10 @@ export async function POST(req: NextRequest) {
 
     const rows = parsed.data.filter((row) => row && row.name?.trim())
 
+    // Get request host to determine the correct app URL for join links
+    const requestHost = req.headers.get('host')
+    const appUrl = getAppUrl(requestHost)
+
     const results: Array<{
       name: string
       email?: string
@@ -149,7 +154,8 @@ export async function POST(req: NextRequest) {
           className: classData.name,
           orgId: profile.org_id,
           createdByUserId: user.id,
-          credentialMethod: method
+          credentialMethod: method,
+          appUrl // Pass the dynamic URL
         })
 
         results.push({

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAppUrl, getAuthRedirectUrl } from '@/lib/utils/url-helper'
 
 // Helper function to convert deployed URLs to localhost for local development
 function convertToLocalhostUrl(url: string | null): string | null {
   if (!url) return null
   
-  const localhostUrl = 'http://localhost:3001'
+  const localhostUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
   const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
   
   // If appUrl is set to localhost or not set (defaults to localhost), convert any deployed URLs
@@ -342,8 +343,8 @@ export async function POST(req: NextRequest) {
 
     // Generate password reset link
     // Supabase will automatically send email if email templates are configured
-    const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-    const redirectUrl = `${appUrl}/auth/verify-educator`
+    const requestHost = req.headers.get('host')
+    const redirectUrl = getAuthRedirectUrl(requestHost)
     
     const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'recovery',

@@ -23,6 +23,7 @@ interface CreateStudentAccountParams {
   createdByUserId: string
   credentialMethod: CredentialMethod
   manualPassword?: string | null
+  appUrl?: string // Optional: override default app URL for join links
 }
 
 export interface CreateStudentAccountResult {
@@ -36,7 +37,8 @@ export interface CreateStudentAccountResult {
   joinLink?: string
 }
 
-const APP_URL =
+// Default app URL - can be overridden by passing appUrl parameter
+const DEFAULT_APP_URL =
   process.env.NEXT_PUBLIC_APP_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   'http://localhost:3001'
@@ -311,7 +313,8 @@ export async function createStudentAccount(
     orgId,
     createdByUserId,
     credentialMethod,
-    manualPassword
+    manualPassword,
+    appUrl
   } = params
 
   if (!email && !phone) {
@@ -458,7 +461,9 @@ export async function createStudentAccount(
     className,
     createdByUserId
   )
-  const joinLink = `${APP_URL}/join/${joinCode}`
+  // Use provided appUrl or fall back to default
+  const baseUrl = appUrl || DEFAULT_APP_URL
+  const joinLink = `${baseUrl}/join/${joinCode}`
 
   return {
     userId,

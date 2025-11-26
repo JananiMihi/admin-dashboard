@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAppUrl, getAuthRedirectUrl } from '@/lib/utils/url-helper'
 
 // Send email directly using configured email service
 async function sendEmailDirectly(to: string, subject: string, html?: string, text?: string): Promise<void> {
@@ -232,15 +233,14 @@ function generatePassword(): string {
 }
 
 // Send verification email to educator
-async function sendEducatorVerificationEmail(email: string, name: string, verificationLink: string | null): Promise<void> {
+async function sendEducatorVerificationEmail(email: string, name: string, verificationLink: string | null, requestHost?: string | null): Promise<void> {
   const emailSubject = 'Verify Your Educator Account - Neo Buddy Admin'
-  // Always use localhost in development mode
-  const isLocalhost = !process.env.NEXT_PUBLIC_APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL
-  const appUrl = isLocalhost ? 'http://localhost:3001' : (process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001')
-  const loginUrl = `${appUrl}/auth/verify-educator`
+  // Use dynamic URL based on request host
+  const appUrl = getAppUrl(requestHost)
+  const loginUrl = getAuthRedirectUrl(requestHost)
   
-  // Extract token and rebuild URL to always use localhost in development
-  let convertedVerificationLink = `${appUrl}/auth/verify-educator`
+  // Extract token and rebuild URL using the correct domain
+  let convertedVerificationLink = getAuthRedirectUrl(requestHost)
   
   if (verificationLink) {
     console.log('Original verificationLink from Supabase:', verificationLink)
@@ -260,34 +260,21 @@ async function sendEducatorVerificationEmail(email: string, name: string, verifi
       console.log('Extracted token:', token ? 'Found' : 'Not found')
       console.log('Extracted type:', type)
       
-      // If we found token, rebuild URL using localhost
+      // If we found token, rebuild URL using the correct domain
       if (token) {
-        const baseUrl = isLocalhost ? 'http://localhost:3001' : appUrl
         // Use our proxy route which will handle Supabase verification
-        convertedVerificationLink = `${baseUrl}/api/auth/v1/verify?token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&redirect_to=${encodeURIComponent(`${baseUrl}/auth/verify-educator`)}`
-        console.log('Rebuilt verification URL with localhost:', convertedVerificationLink)
+        convertedVerificationLink = `${appUrl}/api/auth/v1/verify?token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&redirect_to=${encodeURIComponent(getAuthRedirectUrl(requestHost))}`
+        console.log('Rebuilt verification URL:', convertedVerificationLink)
       } else {
-        // No token found - try conversion
-        console.warn('No token found in verificationLink, attempting conversion')
-        const converted = convertToLocalhostUrl(verificationLink)
-        if (converted && !converted.includes('neo.magicbit.cc')) {
-          convertedVerificationLink = converted
-        } else {
-          // Force localhost if conversion failed
-          convertedVerificationLink = isLocalhost ? 'http://localhost:3001/auth/verify-educator' : `${appUrl}/auth/verify-educator`
-        }
+        // No token found - use default redirect
+        console.warn('No token found in verificationLink, using default redirect')
+        convertedVerificationLink = getAuthRedirectUrl(requestHost)
       }
     } catch (e) {
-      // If URL parsing fails, force localhost
+      // If URL parsing fails, use default redirect
       console.error('Error parsing verificationLink:', e)
-      convertedVerificationLink = isLocalhost ? 'http://localhost:3001/auth/verify-educator' : `${appUrl}/auth/verify-educator`
+      convertedVerificationLink = getAuthRedirectUrl(requestHost)
     }
-  }
-  
-  // Final safety check: ensure no deployed domain in development
-  if (isLocalhost && convertedVerificationLink.includes('neo.magicbit.cc')) {
-    console.warn('WARNING: convertedVerificationLink still contains deployed domain, forcing localhost')
-    convertedVerificationLink = 'http://localhost:3001/auth/verify-educator'
   }
   
   const emailHtml = `
@@ -428,7 +415,7 @@ Admin Team
 function convertToLocalhostUrl(url: string | null): string | null {
   if (!url) return null
   
-  const localhostUrl = 'http://localhost:3001'
+  const localhostUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
   const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
   
   // If appUrl is set to localhost or not set (defaults to localhost), convert any deployed URLs
@@ -518,14 +505,13 @@ function convertToLocalhostUrl(url: string | null): string | null {
 }
 
 // Send email for educator update (when existing user is updated to educator)
-async function sendEducatorUpdateEmail(email: string, name: string, resetLink: string | null): Promise<void> {
-  // Always use localhost in development mode
-  const isLocalhost = !process.env.NEXT_PUBLIC_APP_BASE_URL && !process.env.NEXT_PUBLIC_APP_URL
-  const appUrl = isLocalhost ? 'http://localhost:3001' : (process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001')
-  const loginUrl = `${appUrl}/auth/verify-educator`
+async function sendEducatorUpdateEmail(email: string, name: string, resetLink: string | null, requestHost?: string | null): Promise<void> {
+  // Use dynamic URL based on request host
+  const appUrl = getAppUrl(requestHost)
+  const loginUrl = getAuthRedirectUrl(requestHost)
   
-  // Extract token from resetLink if it exists, then rebuild URL to always point to localhost verify-educator
-  let passwordSetupUrl = `${appUrl}/auth/verify-educator`
+  // Extract token from resetLink if it exists, then rebuild URL using the correct domain
+  let passwordSetupUrl = getAuthRedirectUrl(requestHost)
   
   if (resetLink) {
     console.log('Original resetLink from Supabase:', resetLink)
@@ -546,43 +532,28 @@ async function sendEducatorUpdateEmail(email: string, name: string, resetLink: s
       console.log('Extracted token:', token ? 'Found' : 'Not found')
       console.log('Extracted type:', type)
       
-      // If we found token, rebuild URL using localhost
+      // If we found token, rebuild URL using the correct domain
       if (token) {
-        const baseUrl = isLocalhost ? 'http://localhost:3001' : appUrl
         // Use our proxy route which will handle Supabase verification
-        passwordSetupUrl = `${baseUrl}/api/auth/v1/verify?token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&redirect_to=${encodeURIComponent(`${baseUrl}/auth/verify-educator`)}`
-        console.log('Rebuilt URL with localhost:', passwordSetupUrl)
+        passwordSetupUrl = `${appUrl}/api/auth/v1/verify?token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&redirect_to=${encodeURIComponent(getAuthRedirectUrl(requestHost))}`
+        console.log('Rebuilt URL:', passwordSetupUrl)
       } else {
-        // No token found - try to extract from hash or use conversion
-        console.warn('No token found in resetLink, attempting conversion')
-        const convertedLink = convertToLocalhostUrl(resetLink)
-        if (convertedLink && !convertedLink.includes('neo.magicbit.cc')) {
-          passwordSetupUrl = convertedLink
-        } else {
-          // Force localhost if conversion failed
-          passwordSetupUrl = isLocalhost ? 'http://localhost:3001/auth/verify-educator' : `${appUrl}/auth/verify-educator`
-        }
+        // No token found - use default redirect
+        console.warn('No token found in resetLink, using default redirect')
+        passwordSetupUrl = getAuthRedirectUrl(requestHost)
       }
     } catch (e) {
-      // If URL parsing fails completely, force localhost
+      // If URL parsing fails completely, use default redirect
       console.error('Error parsing resetLink:', e)
-      passwordSetupUrl = isLocalhost ? 'http://localhost:3001/auth/verify-educator' : `${appUrl}/auth/verify-educator`
+      passwordSetupUrl = getAuthRedirectUrl(requestHost)
     }
   } else {
-    // No reset link provided - use default localhost verify-educator
-    passwordSetupUrl = isLocalhost ? 'http://localhost:3001/auth/verify-educator' : `${appUrl}/auth/verify-educator`
-  }
-  
-  // Final safety check: ensure passwordSetupUrl is always localhost in development
-  if (isLocalhost && passwordSetupUrl.includes('neo.magicbit.cc')) {
-    console.warn('WARNING: passwordSetupUrl still contains deployed domain, forcing localhost conversion')
-    passwordSetupUrl = convertToLocalhostUrl(passwordSetupUrl) || 'http://localhost:3001/auth/verify-educator'
+    // No reset link provided - use default redirect
+    passwordSetupUrl = getAuthRedirectUrl(requestHost)
   }
   
   // Log the final URL for debugging
   console.log('Final passwordSetupUrl for email:', passwordSetupUrl)
-  
-  const convertedResetLink = convertToLocalhostUrl(resetLink)
   
   const emailSubject = 'You\'ve Been Invited to Join as an Educator - Neo Buddy Admin'
   const emailHtml = `
@@ -698,7 +669,7 @@ async function sendEducatorUpdateEmail(email: string, name: string, resetLink: s
 }
 
 // Send email for password reset
-async function sendEducatorResetEmail(email: string, name: string, resetLink: string | null): Promise<void> {
+async function sendEducatorResetEmail(email: string, name: string, resetLink: string | null, requestHost?: string | null): Promise<void> {
   const emailSubject = 'Password Reset Request'
   const emailHtml = `
 <!DOCTYPE html>
@@ -739,6 +710,9 @@ async function sendEducatorResetEmail(email: string, name: string, resetLink: st
 export async function POST(req: NextRequest) {
   try {
     const { email, name, orgId } = await req.json()
+    
+    // Get request host to determine the correct app URL
+    const requestHost = req.headers.get('host')
 
     // Validate required fields
     if (!email || !name || !orgId) {
@@ -764,18 +738,18 @@ export async function POST(req: NextRequest) {
       // Check if already educator
       if (existingProfile && existingProfile.role === 'Educator') {
         // Already an educator - generate password reset link
-        const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
+        const redirectUrl = getAuthRedirectUrl(requestHost)
         const { data: resetData } = await supabaseAdmin.auth.admin.generateLink({
           type: 'recovery',
           email: email,
           options: {
-            redirectTo: `${appUrl}/auth/verify-educator`
+            redirectTo: redirectUrl
           }
         })
 
         // Send email with reset link
         try {
-          await sendEducatorResetEmail(email, name, resetData?.properties?.action_link || null)
+          await sendEducatorResetEmail(email, name, resetData?.properties?.action_link || null, requestHost)
         } catch (emailError) {
           console.error('Email sending error:', emailError)
         }
@@ -822,8 +796,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Generate password reset link for existing user (they can set their own password)
-      const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-      const redirectUrl = `${appUrl}/auth/verify-educator`
+      const redirectUrl = getAuthRedirectUrl(requestHost)
       const { data: resetData, error: resetError } = await supabaseAdmin.auth.admin.generateLink({
         type: 'recovery',
         email: email,
@@ -834,7 +807,7 @@ export async function POST(req: NextRequest) {
 
       // Send email with login instructions
       try {
-        await sendEducatorUpdateEmail(email, name, resetData?.properties?.action_link || null)
+        await sendEducatorUpdateEmail(email, name, resetData?.properties?.action_link || null, requestHost)
       } catch (emailError) {
         console.error('Email sending error:', emailError)
       }
@@ -903,18 +876,18 @@ export async function POST(req: NextRequest) {
             })
 
           // Generate password reset link
-          const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
+          const redirectUrl = getAuthRedirectUrl(requestHost)
           const { data: resetData } = await supabaseAdmin.auth.admin.generateLink({
             type: 'recovery',
             email: email,
             options: {
-              redirectTo: `${appUrl}/auth/verify-educator`
+              redirectTo: redirectUrl
             }
           })
 
           // Send email with reset link
           try {
-            await sendEducatorUpdateEmail(email, name, resetData?.properties?.action_link || null)
+            await sendEducatorUpdateEmail(email, name, resetData?.properties?.action_link || null, requestHost)
           } catch (emailError) {
             console.error('Email sending error:', emailError)
           }
@@ -971,8 +944,7 @@ export async function POST(req: NextRequest) {
 
     // Generate verification link for password setup
     // Supabase will automatically send email if email templates are configured
-    const appUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-    const redirectUrl = `${appUrl}/auth/verify-educator`
+    const redirectUrl = getAuthRedirectUrl(requestHost)
     
     const { data: verificationData, error: verificationError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'invite',
@@ -994,7 +966,7 @@ export async function POST(req: NextRequest) {
     // Send custom verification email (if Supabase email template not configured)
     // This will only send if email service is configured
     try {
-      await sendEducatorVerificationEmail(email, name, verificationData?.properties?.action_link || null)
+      await sendEducatorVerificationEmail(email, name, verificationData?.properties?.action_link || null, requestHost)
     } catch (emailError) {
       console.error('Custom email sending error (this is ok if Supabase email is configured):', emailError)
     }
