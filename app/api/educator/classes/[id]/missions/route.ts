@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { resolveImagePaths } from '@/lib/utils/mission-image-resolver'
 
 // Assign mission to class
 export async function POST(
@@ -255,9 +256,24 @@ export async function GET(
       )
     }
 
+    // Resolve image paths for each mission
+    const missionsWithResolvedImages = (missions || []).map((mission: any) => {
+      if (mission.mission_data) {
+        return {
+          ...mission,
+          mission_data: resolveImagePaths(
+            mission.mission_data,
+            mission.assets_bucket,
+            mission.assets_prefix
+          )
+        }
+      }
+      return mission
+    })
+
     return NextResponse.json({
       success: true,
-      missions: missions || []
+      missions: missionsWithResolvedImages
     })
   } catch (error: any) {
     console.error('Error in GET /api/educator/classes/[id]/missions:', error)
@@ -342,6 +358,8 @@ export async function DELETE(
     )
   }
 }
+
+
 
 
 

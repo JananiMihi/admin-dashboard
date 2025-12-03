@@ -269,8 +269,9 @@ export default function VerifyEducatorPage() {
     setError('')
 
     try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || window.location.origin
       const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/verify-educator`
+        redirectTo: `${baseUrl}/auth/verify-educator`
       })
 
       if (resetError) throw resetError

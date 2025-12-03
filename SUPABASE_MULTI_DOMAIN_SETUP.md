@@ -123,3 +123,5 @@ The application uses a utility function (`lib/utils/url-helper.ts`) that:
 - [Supabase Redirect URLs Guide](https://supabase.com/docs/guides/auth/auth-redirects)
 
 
+
+

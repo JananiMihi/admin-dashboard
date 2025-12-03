@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { resolveImagePaths } from '@/lib/utils/mission-image-resolver'
 
 // Get customized mission for a class (for students)
 // Returns base mission merged with class customizations
@@ -84,6 +85,17 @@ export async function GET(
       .maybeSingle()
 
     // Merge base mission with customization
+    let mergedMissionData = customization?.custom_mission_data ?? mission.mission_data
+
+    // Resolve image paths in mission_data
+    if (mergedMissionData) {
+      mergedMissionData = resolveImagePaths(
+        mergedMissionData,
+        mission.assets_bucket,
+        mission.assets_prefix
+      )
+    }
+
     const mergedMission = {
       ...mission,
       title: customization?.custom_title ?? mission.title,
@@ -93,7 +105,7 @@ export async function GET(
       unlocked: customization?.custom_unlocked ?? mission.unlocked,
       difficulty: customization?.custom_difficulty ?? mission.difficulty,
       estimated_time: customization?.custom_estimated_time ?? mission.estimated_time,
-      mission_data: customization?.custom_mission_data ?? mission.mission_data,
+      mission_data: mergedMissionData,
       has_customization: customization !== null
     }
 
@@ -109,6 +121,8 @@ export async function GET(
     )
   }
 }
+
+
 
 
 
